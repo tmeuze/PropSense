@@ -1,0 +1,18 @@
+# Hub automation: publish the retained "online" marker the children use for
+# availability. Pair it with the hub MQTT will message (topic
+# propsense/hub/status, payload "offline", retain ON). The hub's birth message
+# can stay on homeassistant/status for other integrations; this automation
+# publishes the retained "online" itself, because HA has only one birth topic.
+#
+# Triggers on HA start only, so fire it once manually after installing.
+alias: "PropSense: hub heartbeat"
+mode: single
+triggers:
+  - trigger: homeassistant
+    event: start
+actions:
+  - action: mqtt.publish
+    data:
+      topic: "propsense/hub/status"
+      payload: "online"
+      retain: true

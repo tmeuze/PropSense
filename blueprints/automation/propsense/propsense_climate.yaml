@@ -1,0 +1,205 @@
+# PropSense (pre-1.0): synthetic climate. Verified on HA 2026.9.x for the
+# policy and clamp logic; the climate service path depends on your controller.
+#
+# On the hub, publish ONE synthetic climate entity to a unit, built from a hub
+# climate entity (the controller whose reality you want guests to see) and a
+# temperature sensor, instead of a thermostat's own display. One automation per
+# room per unit. Selected by trigger id:
+#   resync / state : publish discovery + target + current temperature
+#   cmd            : clamp the guest's setpoint, then call climate.set_temperature
+#
+# POLICY: the hub climate entity must pass the same whitelist as other entities
+# (unit or common label AND an area on the matching floors). If it does not,
+# discovery is cleared and commands are ignored. The entity comes from this
+# automation's inputs, never from the payload. The only thing a guest can
+# change is the target temperature, clamped to min..max.
+#
+# UNVERIFIED (depends on your climate entity):
+#   - that it accepts climate.set_temperature
+#   - which attribute holds its target (assumed `temperature`)
+#   - that `modes: ["auto"]` with no mode topics gives a usable thermostat card
+# Temperatures assume the hub and the child use the same unit system.
+
+blueprint:
+  name: "PropSense: synthetic climate"
+  description: >-
+    Publishes a climate entity backed by a hub climate entity to one unit and applies its
+    clamped setpoint commands.
+  domain: automation
+  source_url: https://github.com/tmeuze/PropSense/blob/main/blueprints/automation/propsense/propsense_climate.yaml
+  input:
+    unit:
+      name: Unit prefix
+      selector:
+        text:
+    object:
+      name: Room slug
+      description: "Lowercase slug used in topics, e.g. entry_hall"
+      selector:
+        text:
+    command_topic:
+      name: Command topic
+      description: "Exactly <unit>/climate/<room slug>/target/set"
+      selector:
+        text:
+    climate_entity:
+      name: Hub climate entity
+      description: "The climate entity (e.g. a room controller's override or target entity) that guests will effectively set."
+      selector:
+        entity:
+          domain: climate
+    current_sensor:
+      name: Current temperature sensor
+      description: "The temperature you consider true for the room; shown to the guest as the current temperature."
+      selector:
+        entity:
+          domain: sensor
+    min_temp:
+      name: Minimum setpoint
+      default: 64
+      selector:
+        number:
+          min: 40
+          max: 100
+    max_temp:
+      name: Maximum setpoint
+      default: 80
+      selector:
+        number:
+          min: 40
+          max: 100
+    unit_label:
+      name: Unit label
+      description: "Entities with this label (e.g. Live: Alpha) are exposed to this unit."
+      selector:
+        label: {}
+    unit_floors:
+      name: Unit floors
+      description: "Floor(s) the unit label is valid on (e.g. Alpha). Label AND floor are both required."
+      selector:
+        floor:
+          multiple: true
+    common_label:
+      name: Common label
+      description: "Entities with this label (e.g. Live: Shared) are exposed to every unit."
+      selector:
+        label: {}
+    common_floors:
+      name: Common floors
+      description: "Floor(s) the common label is valid on (e.g. Shared). Label AND floor are both required."
+      selector:
+        floor:
+          multiple: true
+    hub_status_topic:
+      name: Hub availability topic
+      description: "Retained topic that reads 'online' while the hub is up."
+      default: "propsense/hub/status"
+      selector:
+        text:
+
+mode: queued
+max: 10
+max_exceeded: silent
+
+triggers:
+  - trigger: homeassistant
+    event: start
+    id: resync
+  - trigger: event
+    event_type: entity_registry_updated
+    id: resync
+  - trigger: event
+    event_type: area_registry_updated
+    id: resync
+  - trigger: event
+    event_type: floor_registry_updated
+    id: resync
+  - trigger: event
+    event_type: label_registry_updated
+    id: resync
+  - trigger: state
+    entity_id:
+      - !input climate_entity
+      - !input current_sensor
+    id: state
+  - trigger: mqtt
+    topic: !input command_topic
+    id: cmd
+
+variables:
+  unit: !input unit
+  obj: !input object
+  rm: !input climate_entity
+  cur: !input current_sensor
+  lo: !input min_temp
+  hi: !input max_temp
+  unit_label: !input unit_label
+  unit_floors: !input unit_floors
+  common_label: !input common_label
+  common_floors: !input common_floors
+  hub_status_topic: !input hub_status_topic
+  base: "{{ unit }}/climate/{{ obj }}"
+  allowed: >-
+    {% set ns = namespace(ua=[], ca=[]) %}
+    {% for f in unit_floors %}{% set ns.ua = ns.ua + floor_areas(f) %}{% endfor %}
+    {% for f in common_floors %}{% set ns.ca = ns.ca + floor_areas(f) %}{% endfor %}
+    {{ (rm in label_entities(unit_label) and area_id(rm) in ns.ua) or (rm in label_entities(common_label) and area_id(rm) in ns.ca) }}
+
+actions:
+  - choose:
+      # Command: re-check policy and topic, clamp, then call climate.set_temperature on the hub climate entity.
+      - conditions: "{{ trigger.id == 'cmd' }}"
+        sequence:
+          - condition: template
+            value_template: "{{ allowed and trigger.topic == base ~ '/target/set' }}"
+          - condition: template
+            value_template: "{{ trigger.payload | float(none) is not none }}"
+          - action: climate.set_temperature
+            target:
+              entity_id: "{{ rm }}"
+            data:
+              temperature: "{{ [[trigger.payload | float, lo] | max, hi] | min }}"
+    default:
+      # Resync/state: revoke when not allowed, otherwise publish.
+      - choose:
+          - conditions: "{{ not allowed }}"
+            sequence:
+              - action: mqtt.publish
+                data:
+                  topic: "{{ base | replace(unit ~ '/climate/', unit ~ '/ha/climate/') }}/config"
+                  payload: ""
+                  retain: true
+        default:
+          - action: mqtt.publish
+            data:
+              topic: "{{ unit }}/ha/climate/{{ obj }}/config"
+              retain: true
+              payload: >-
+                {{ {
+                  'name': state_attr(rm, 'friendly_name'),
+                  'unique_id': unit ~ '_climate_' ~ obj,
+                  'temperature_unit': 'F',
+                  'min_temp': lo,
+                  'max_temp': hi,
+                  'temp_step': 1,
+                  'modes': ['auto'],
+                  'temperature_command_topic': base ~ '/target/set',
+                  'temperature_state_topic': base ~ '/target/state',
+                  'current_temperature_topic': base ~ '/current',
+                  'availability': [{'topic': hub_status_topic}],
+                  'availability_mode': 'all'
+                } | to_json }}
+          - condition: template
+            value_template: "{{ states(cur) not in ['unavailable', 'unknown'] }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ base }}/current"
+              payload: "{{ states(cur) }}"
+              retain: true
+          - condition: template
+            value_template: "{{ state_attr(rm, 'temperature') is not none }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ base }}/target/state"
+              payload: "{{ state_attr(rm, 'temperature') }}"
+              retain: true
