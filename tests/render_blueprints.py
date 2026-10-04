@@ -292,14 +292,25 @@ def test_climate():
     bp = load("propsense_climate.yaml")
     base_inputs = dict(pm.inputs("alpha"), object="entry", min_temp=64, max_temp=80,
                        climate_entity="climate.rm_entry", current_sensor="sensor.entry_t",
-                       command_topic="alpha/climate/entry/target/set")
+                       command_topic="alpha/climate/entry/target/set",
+                       target_sensor="", mode_sensor="", temperature_unit="F",
+                       expire_after_minutes=0)
     # climate entity must pass the same whitelist; add it to the stub world
     pm.ENTITIES["climate.rm_entry"] = ("entry", {"Live: Shared"})
     pm.ENTITIES["climate.rm_alpha_bed"] = ("alpha", set())  # not labelled
     pm.ENTITIES["climate.rm_beta_wrongunit"] = ("alpha", {"Live: Beta"})  # label/floor mismatch
     pm.ENTITIES["climate.rm_virtual"] = ("staging", {"Live: Alpha"})
-    env = env_for(WORLD, ATTRS)
-    cmd = bp["actions"][0]["choose"][0]
+    world = WORLD + [State("sensor.entry_t", "71.5"), State("sensor.entry_target", "68"),
+                     State("sensor.entry_mode", "Heating"), State("sensor.bad_mode", "weird"),
+                     State("sensor.dead_t", "unavailable"), State("sensor.dead_target", "unknown")]
+    attrs = dict(ATTRS)
+    attrs["climate.rm_entry"] = {"friendly_name": "Entry", "temperature": 70}
+    env = env_for(world, attrs)
+    check("climate runs in parallel mode (expiry must not block state publishing)",
+          bp["mode"] == "parallel")
+    gate = bp["actions"][0]
+    choose = bp["actions"][1]
+    cmd = choose["choose"][0]
     for label, rm, topic, payload, expect in [
         ("in-range", "climate.rm_entry", "alpha/climate/entry/target/set", "72", 72.0),
         ("above max clamps to 80", "climate.rm_entry", "alpha/climate/entry/target/set", "95", 80.0),
@@ -320,6 +331,85 @@ def test_climate():
             call = next(a for a in cmd["sequence"] if a.get("action"))
             got = render(env, call["data"]["temperature"], ctx)
         check(f"climate command {label}", got == expect)
+
+    # state_changed filter: only watched entities pass; resync/cmd always pass
+    inputs = dict(base_inputs, target_sensor="sensor.entry_target", mode_sensor="sensor.entry_mode")
+    for label, trig, expect in [
+        ("watched climate entity passes", {"id": "state", "event": {"data": {"entity_id": "climate.rm_entry"}}}, True),
+        ("watched current sensor passes", {"id": "state", "event": {"data": {"entity_id": "sensor.entry_t"}}}, True),
+        ("watched target sensor passes", {"id": "state", "event": {"data": {"entity_id": "sensor.entry_target"}}}, True),
+        ("watched mode sensor passes", {"id": "state", "event": {"data": {"entity_id": "sensor.entry_mode"}}}, True),
+        ("unrelated entity filtered out", {"id": "state", "event": {"data": {"entity_id": "light.alpha_lamp"}}}, False),
+        ("resync always passes", {"id": "resync"}, True),
+    ]:
+        ctx = run_vars(env, bp["variables"], inputs, {"trigger": trig})
+        check(f"climate event filter: {label}", render(env, gate["value_template"], ctx) is expect)
+    ctx = run_vars(env, bp["variables"], base_inputs,
+                   {"trigger": {"id": "state", "event": {"data": {"entity_id": "sensor.entry_target"}}}})
+    check("climate event filter: optional sensors not watched when empty",
+          render(env, gate["value_template"], ctx) is False)
+
+    # target and action sources
+    for label, inp, key, expect in [
+        ("target from the climate attribute when no target sensor", base_inputs, "target_val", 70),
+        ("target from the target sensor when given", dict(base_inputs, target_sensor="sensor.entry_target"), "target_val", 68),
+        ("mode 'Heating' maps to heating", dict(base_inputs, mode_sensor="sensor.entry_mode"), "action_val", "heating"),
+        ("unknown mode string publishes nothing", dict(base_inputs, mode_sensor="sensor.bad_mode"), "action_val", ""),
+        ("no mode sensor publishes nothing", base_inputs, "action_val", ""),
+    ]:
+        ctx = run_vars(env, bp["variables"], inp, {"trigger": {"id": "resync"}})
+        check(f"climate {label}", ctx[key] == expect)
+
+    # discovery payload
+    default_pub = choose["default"][0]["default"]
+    disc = next(x for x in default_pub if x.get("action") == "mqtt.publish")["data"]
+    for label, inp, expect_action in [("without mode sensor", base_inputs, False),
+                                     ("with mode sensor", dict(base_inputs, mode_sensor="sensor.entry_mode"), True)]:
+        ctx = run_vars(env, bp["variables"], inp, {"trigger": {"id": "resync"}})
+        out = render(env, disc["payload"], ctx)
+        payload = json.loads(out) if isinstance(out, str) else out
+        check(f"climate discovery {label}: action_topic present == {expect_action}",
+              ("action_topic" in payload) is expect_action)
+        check(f"climate discovery {label}: unit and range come from inputs",
+              payload["temperature_unit"] == "F" and payload["min_temp"] == 64 and payload["max_temp"] == 80)
+        check(f"climate discovery {label}: availability uses the hub topic",
+              {"topic": "propsense/hub/status"} in payload["availability"])
+    ctx = run_vars(env, bp["variables"], dict(base_inputs, temperature_unit="C"), {"trigger": {"id": "resync"}})
+    out = render(env, disc["payload"], ctx)
+    check("climate discovery honours temperature_unit input",
+          (json.loads(out) if isinstance(out, str) else out)["temperature_unit"] == "C")
+    # numeric guards on the publishes
+    ifs = [x for x in default_pub if "if" in x]
+    cur_guard, tgt_guard, act_guard = (x["if"][0]["value_template"] for x in ifs)
+    for label, inp, guard, expect in [
+        ("current published when numeric", base_inputs, cur_guard, True),
+        ("current NOT published when unavailable", dict(base_inputs, current_sensor="sensor.dead_t"), cur_guard, False),
+        ("target NOT published when sensor unknown", dict(base_inputs, target_sensor="sensor.dead_target"), tgt_guard, False),
+        ("target published from attribute fallback", base_inputs, tgt_guard, True),
+        ("action NOT published without a mode sensor", base_inputs, act_guard, False),
+        ("action published for a known mode", dict(base_inputs, mode_sensor="sensor.entry_mode"), act_guard, True),
+    ]:
+        ctx = run_vars(env, bp["variables"], inp, {"trigger": {"id": "resync"}})
+        check(f"climate guard: {label}", render(env, guard, ctx) is expect)
+
+    # expiry wiring
+    exp = next(x for x in cmd["sequence"] if "if" in x)
+    wait = exp["then"][0]
+    check("climate expiry waits on the same command topic",
+          isinstance(wait["wait_for_trigger"][0]["topic"], Inp) and wait["wait_for_trigger"][0]["topic"].name == "command_topic")
+    check("climate expiry continues on timeout", wait["continue_on_timeout"] is True)
+    after = exp["then"][1]
+    check("climate expiry runs the user action only when the wait timed out",
+          "wait.trigger is none" in after["if"][0]["value_template"]
+          and isinstance(after["then"], Inp) and after["then"].name == "expire_action")
+    for minutes, expect in [(0, False), (30, True)]:
+        ctx = run_vars(env, bp["variables"], dict(base_inputs, expire_after_minutes=minutes),
+                       {"trigger": {"id": "cmd", "topic": "alpha/climate/entry/target/set", "payload": "70"}})
+        check(f"climate expiry gate with expire_after_minutes={minutes}",
+              render(env, exp["if"][0]["value_template"], ctx) is expect)
+    check("climate default expiry is off",
+          bp["blueprint"]["input"]["expire_after_minutes"]["default"] == 0
+          and bp["blueprint"]["input"]["expire_action"]["default"] == [])
 
 
 if __name__ == "__main__":

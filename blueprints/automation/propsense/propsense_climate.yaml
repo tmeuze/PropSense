@@ -1,12 +1,20 @@
-# PropSense (pre-1.0): synthetic climate. Verified on HA 2026.9.x for the
-# policy and clamp logic; the climate service path depends on your controller.
+# PropSense (pre-1.0): synthetic climate. The policy, clamp, topic and payload
+# logic are tested offline; the call into your climate entity is not (it depends
+# on your controller). See docs/testing.md.
 #
-# On the hub, publish ONE synthetic climate entity to a unit, built from a hub
-# climate entity (the controller whose reality you want guests to see) and a
-# temperature sensor, instead of a thermostat's own display. One automation per
-# room per unit. Selected by trigger id:
-#   resync / state : publish discovery + target + current temperature
-#   cmd            : clamp the guest's setpoint, then call climate.set_temperature
+# On the hub, publish ONE synthetic climate entity to a unit, built from hub
+# entities instead of a thermostat's own display. One automation per room per
+# unit. Selected by trigger id:
+#   resync / state : publish discovery + target + current temperature (+ action)
+#   cmd            : clamp the guest's setpoint, call climate.set_temperature on
+#                    the hub climate entity, optionally run an expiry action
+#
+# Inputs: a hub climate entity (what guests effectively set), a temperature
+# sensor (shown as the current temperature), an optional target sensor (shown as
+# the target instead of the climate entity's `temperature` attribute), and an
+# optional mode sensor (heating / cooling / idle / off, shown as the card's
+# action). Targets and temperatures are published as-is: hub and unit must use
+# the same unit system, and `temperature_unit` must match it.
 #
 # POLICY: the hub climate entity must pass the same whitelist as other entities
 # (unit or common label AND an area on the matching floors). If it does not,
@@ -14,11 +22,21 @@
 # automation's inputs, never from the payload. The only thing a guest can
 # change is the target temperature, clamped to min..max.
 #
+# EXPIRY (optional): with expire_after_minutes > 0, a guest setpoint is followed
+# by a wait. If no newer command arrives before the timeout, expire_action runs
+# (use it to clear your controller's override, e.g. a service call). A newer
+# command restarts the countdown. Pending expiries are lost on a Home Assistant
+# restart. A malformed newer command also cancels the previous countdown.
+#
+# This blueprint runs in parallel mode so a long expiry wait never blocks state
+# publishing. State changes of the watched entities are filtered from the
+# state_changed event stream, because optional entities cannot be state-trigger
+# inputs.
+#
 # UNVERIFIED (depends on your climate entity):
 #   - that it accepts climate.set_temperature
-#   - which attribute holds its target (assumed `temperature`)
 #   - that `modes: ["auto"]` with no mode topics gives a usable thermostat card
-# Temperatures assume the hub and the child use the same unit system.
+#   - the mode sensor's state strings (mapped: heating, cooling, idle, off)
 
 blueprint:
   name: "PropSense: synthetic climate"
@@ -54,6 +72,29 @@ blueprint:
       selector:
         entity:
           domain: sensor
+    target_sensor:
+      name: Target temperature sensor (optional)
+      description: "A sensor holding the target your controller is actually holding. If empty, the climate entity's `temperature` attribute is used."
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+    mode_sensor:
+      name: Mode sensor (optional)
+      description: "A sensor whose state is heating, cooling, idle or off. Shown as the thermostat card's action. Unknown states are not published."
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+    temperature_unit:
+      name: Temperature unit
+      description: "Must match the unit system of the hub and the unit."
+      default: "F"
+      selector:
+        select:
+          options:
+            - "F"
+            - "C"
     min_temp:
       name: Minimum setpoint
       default: 64
@@ -96,9 +137,24 @@ blueprint:
       default: "propsense/hub/status"
       selector:
         text:
+    expire_after_minutes:
+      name: Expire guest override after (minutes)
+      description: "0 disables expiry. Otherwise expire_action runs this long after the last guest command."
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1440
+          mode: box
+    expire_action:
+      name: Expiry action
+      description: "Actions to run when a guest override expires (e.g. a service call that clears your controller's override). Ignored when expiry is 0."
+      default: []
+      selector:
+        action: {}
 
-mode: queued
-max: 10
+mode: parallel
+max: 30
 max_exceeded: silent
 
 triggers:
@@ -117,10 +173,8 @@ triggers:
   - trigger: event
     event_type: label_registry_updated
     id: resync
-  - trigger: state
-    entity_id:
-      - !input climate_entity
-      - !input current_sensor
+  - trigger: event
+    event_type: state_changed
     id: state
   - trigger: mqtt
     topic: !input command_topic
@@ -138,6 +192,15 @@ variables:
   common_label: !input common_label
   common_floors: !input common_floors
   hub_status_topic: !input hub_status_topic
+  tgt: !input target_sensor
+  md: !input mode_sensor
+  t_unit: !input temperature_unit
+  expire_min: !input expire_after_minutes
+  watched: "{{ [rm, cur] + ([tgt] if tgt else []) + ([md] if md else []) }}"
+  target_val: >-
+    {% if tgt %}{{ states(tgt) }}{% else %}{{ state_attr(rm, 'temperature') }}{% endif %}
+  action_val: >-
+    {% set sv = (states(md) | lower) if md else '' %}{% if sv in ['heating', 'cooling', 'idle', 'off'] %}{{ sv }}{% endif %}
   base: "{{ unit }}/climate/{{ obj }}"
   allowed: >-
     {% set ns = namespace(ua=[], ca=[]) %}
@@ -146,8 +209,11 @@ variables:
     {{ (rm in label_entities(unit_label) and area_id(rm) in ns.ua) or (rm in label_entities(common_label) and area_id(rm) in ns.ca) }}
 
 actions:
+  # State-change events are only for the watched entities; ignore the rest.
+  - condition: template
+    value_template: "{{ trigger.id != 'state' or trigger.event.data.entity_id in watched }}"
   - choose:
-      # Command: re-check policy and topic, clamp, then call climate.set_temperature on the hub climate entity.
+      # Command: re-check policy and topic, clamp, call the hub climate entity.
       - conditions: "{{ trigger.id == 'cmd' }}"
         sequence:
           - condition: template
@@ -159,6 +225,20 @@ actions:
               entity_id: "{{ rm }}"
             data:
               temperature: "{{ [[trigger.payload | float, lo] | max, hi] | min }}"
+          - if:
+              - condition: template
+                value_template: "{{ expire_min | int(0) > 0 }}"
+            then:
+              - wait_for_trigger:
+                  - trigger: mqtt
+                    topic: !input command_topic
+                timeout:
+                  minutes: "{{ expire_min }}"
+                continue_on_timeout: true
+              - if:
+                  - condition: template
+                    value_template: "{{ wait.trigger is none }}"
+                then: !input expire_action
     default:
       # Resync/state: revoke when not allowed, otherwise publish.
       - choose:
@@ -166,7 +246,7 @@ actions:
             sequence:
               - action: mqtt.publish
                 data:
-                  topic: "{{ base | replace(unit ~ '/climate/', unit ~ '/ha/climate/') }}/config"
+                  topic: "{{ unit }}/ha/climate/{{ obj }}/config"
                   payload: ""
                   retain: true
         default:
@@ -178,7 +258,7 @@ actions:
                 {{ {
                   'name': state_attr(rm, 'friendly_name'),
                   'unique_id': unit ~ '_climate_' ~ obj,
-                  'temperature_unit': 'F',
+                  'temperature_unit': t_unit,
                   'min_temp': lo,
                   'max_temp': hi,
                   'temp_step': 1,
@@ -188,18 +268,31 @@ actions:
                   'current_temperature_topic': base ~ '/current',
                   'availability': [{'topic': hub_status_topic}],
                   'availability_mode': 'all'
-                } | to_json }}
-          - condition: template
-            value_template: "{{ states(cur) not in ['unavailable', 'unknown'] }}"
-          - action: mqtt.publish
-            data:
-              topic: "{{ base }}/current"
-              payload: "{{ states(cur) }}"
-              retain: true
-          - condition: template
-            value_template: "{{ state_attr(rm, 'temperature') is not none }}"
-          - action: mqtt.publish
-            data:
-              topic: "{{ base }}/target/state"
-              payload: "{{ state_attr(rm, 'temperature') }}"
-              retain: true
+                } | combine({'action_topic': base ~ '/action'} if md else {}) | to_json }}
+          - if:
+              - condition: template
+                value_template: "{{ states(cur) | float(none) is not none }}"
+            then:
+              - action: mqtt.publish
+                data:
+                  topic: "{{ base }}/current"
+                  payload: "{{ states(cur) }}"
+                  retain: true
+          - if:
+              - condition: template
+                value_template: "{{ target_val | float(none) is not none }}"
+            then:
+              - action: mqtt.publish
+                data:
+                  topic: "{{ base }}/target/state"
+                  payload: "{{ target_val }}"
+                  retain: true
+          - if:
+              - condition: template
+                value_template: "{{ action_val | string | length > 0 }}"
+            then:
+              - action: mqtt.publish
+                data:
+                  topic: "{{ base }}/action"
+                  payload: "{{ action_val }}"
+                  retain: true

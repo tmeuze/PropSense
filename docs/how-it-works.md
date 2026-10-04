@@ -26,6 +26,26 @@ Entities are available on a unit only while the entity's own availability is
 | command bridge | MQTT message on `<unit>/+/+/set` | Re-checks the whitelist, then calls a hardcoded light or switch service |
 | climate | registry events, state changes of the two entities, and its command topic | Publishes a synthetic thermostat; clamps and applies setpoints |
 
+## Climate (synthetic thermostat)
+`propsense_climate` publishes one MQTT climate entity per room per unit, built
+from hub entities, so a guest sees what your controller is actually doing and
+not a thermostat's own display:
+
+| Input | Becomes |
+|---|---|
+| Hub climate entity | The entity guest setpoints are applied to (`climate.set_temperature`); must pass the whitelist |
+| Current temperature sensor | `current_temperature` |
+| Target sensor (optional) | The shown target; if empty, the climate entity's `temperature` attribute |
+| Mode sensor (optional) | The card's action: `heating`, `cooling`, `idle` or `off`; other states are not published |
+| Min / max, unit | The guest range and `temperature_unit` (hub and unit must use the same system) |
+
+**Expiry (optional).** With `expire_after_minutes` above 0, each guest setpoint
+starts a countdown. A newer command restarts it; on timeout the `expire_action`
+you supply runs (typically a service call that clears your controller's
+override). The blueprint runs in parallel mode so the wait never blocks state
+publishing. Pending countdowns are lost on a Home Assistant restart, and a
+malformed newer command also cancels the previous countdown.
+
 ## The whitelist
 Evaluated identically in all blueprints (keep the `exposed` template in sync):
 

@@ -15,6 +15,14 @@ It cannot prove HA's own functions behave like the stubs.
 Both suites were also checked by breaking the templates on purpose (dropping a
 floor check, adding a domain, removing a clamp); every break was caught.
 
+## Climate on a real instance
+The offline tests cover the policy, clamp, topics, payloads, event filter and
+the expiry wiring. They cannot cover your climate entity. Before relying on it:
+call `climate.set_temperature` on the hub climate entity from Developer Tools;
+check that the unit shows the right current, target and action; send a setpoint
+from the unit and confirm the clamp; if you use expiry, confirm your
+`expire_action` clears the override.
+
 ## On a real instance, read-only first
 In Developer Tools, Template, on the hub (replace ids with yours):
 ```jinja
