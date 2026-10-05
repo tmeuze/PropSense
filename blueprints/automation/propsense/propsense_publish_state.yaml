@@ -131,9 +131,14 @@ actions:
             payload: >-
               {% if domain == 'light' %}
                 {% set d = {'state': s | upper} %}
-                {% if state_attr(repeat.item, 'brightness') is not none %}
-                  {% set d = d | combine({'brightness': state_attr(repeat.item, 'brightness')}) %}
-                {% endif %}
+                {% set cm0 = state_attr(repeat.item, 'color_mode') %}
+                {% set cm = 'rgb' if cm0 in ['rgbw', 'rgbww'] else ('brightness' if cm0 == 'white' else cm0) %}
+                {% if state_attr(repeat.item, 'brightness') is not none %}{% set d = d | combine({'brightness': state_attr(repeat.item, 'brightness')}) %}{% endif %}
+                {% if cm %}{% set d = d | combine({'color_mode': cm}) %}{% endif %}
+                {% if cm == 'color_temp' and state_attr(repeat.item, 'color_temp_kelvin') is not none %}{% set d = d | combine({'color_temp': state_attr(repeat.item, 'color_temp_kelvin')}) %}{% endif %}
+                {% if cm == 'hs' and state_attr(repeat.item, 'hs_color') %}{% set c = state_attr(repeat.item, 'hs_color') %}{% set d = d | combine({'color': {'h': c[0], 's': c[1]}}) %}{% endif %}
+                {% if cm == 'xy' and state_attr(repeat.item, 'xy_color') %}{% set c = state_attr(repeat.item, 'xy_color') %}{% set d = d | combine({'color': {'x': c[0], 'y': c[1]}}) %}{% endif %}
+                {% if cm == 'rgb' and state_attr(repeat.item, 'rgb_color') %}{% set c = state_attr(repeat.item, 'rgb_color') %}{% set d = d | combine({'color': {'r': c[0], 'g': c[1], 'b': c[2]}}) %}{% endif %}
                 {{ d | to_json }}
               {% elif domain in ['switch', 'binary_sensor'] %}
                 {{ s | upper }}

@@ -187,11 +187,14 @@ actions:
                     topic: "{{ unit }}/ha/light/{{ obj }}/config"
                     retain: true
                     payload: >-
-                      {{ common | combine({
-                        'schema': 'json',
-                        'command_topic': base ~ '/set',
-                        'brightness': state_attr(repeat.item, 'brightness') is not none or 'brightness' in (state_attr(repeat.item, 'supported_color_modes') or [])
-                      }) | to_json }}
+                      {% set raw = state_attr(repeat.item, 'supported_color_modes') or [] %}
+                      {% set ns = namespace(m=[]) %}
+                      {% for x in raw %}{% set y = 'rgb' if x in ['rgbw', 'rgbww'] else x %}{% if y in ['onoff', 'brightness', 'color_temp', 'hs', 'xy', 'rgb'] and y not in ns.m %}{% set ns.m = ns.m + [y] %}{% endif %}{% endfor %}
+                      {% if not ns.m %}{% set ns.m = ['brightness'] if raw else ['onoff'] %}{% endif %}
+                      {% set d = common | combine({'schema': 'json', 'command_topic': base ~ '/set', 'supported_color_modes': ns.m}) %}
+                      {% if 'color_temp' in ns.m %}{% set d = d | combine({'color_temp_kelvin': true, 'min_kelvin': state_attr(repeat.item, 'min_color_temp_kelvin') | int(2000), 'max_kelvin': state_attr(repeat.item, 'max_color_temp_kelvin') | int(6535)}) %}{% endif %}
+                      {% if 'rgb' in ns.m %}{% set d = d | combine({'brightness': true}) %}{% endif %}
+                      {{ d | to_json }}
             - conditions: "{{ domain == 'switch' }}"
               sequence:
                 - action: mqtt.publish

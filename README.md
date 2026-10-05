@@ -79,7 +79,7 @@ use, and per-instance broker users (see
   entities; a custom integration would scale better.
 - Deleting an entity from the hub entirely leaves a stale retained discovery
   topic on the broker.
-- Light support is on/off and brightness only (no colour yet).
+- Lights support on/off, brightness, colour temperature and colour (hs, xy, rgb; `rgbw`/`rgbww` appear as rgb). Effects, transitions and white-channel control are not carried.
 - Synthetic climate is the least-tested blueprint: its policy, clamp and payload logic are tested offline, but the call into your climate entity is not, and guest-override expiry is lost on a Home Assistant restart.
 
 ## Tests

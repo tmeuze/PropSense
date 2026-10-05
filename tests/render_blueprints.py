@@ -121,6 +121,13 @@ def check(name, cond):
 
 WORLD = [State(e, "on") for e in pm.ENTITIES]
 ATTRS = {
+    "light.alpha_color": {"friendly_name": "Alpha Color", "supported_color_modes": ["color_temp", "xy"],
+                          "min_color_temp_kelvin": 2000, "max_color_temp_kelvin": 6535},
+    "light.alpha_rgb": {"friendly_name": "Alpha Rgb", "supported_color_modes": ["rgbw"]},
+    "light.alpha_hs": {"friendly_name": "Alpha Hs", "supported_color_modes": ["hs"]},
+    "light.alpha_white": {"friendly_name": "Alpha White", "supported_color_modes": ["white"]},
+    "light.alpha_onoff": {"friendly_name": "Alpha Onoff", "supported_color_modes": ["onoff"]},
+    "light.alpha_noattr": {"friendly_name": "Alpha Noattr"},
     "light.kitchen_pendant": {"friendly_name": "Kitchen Pendant", "brightness": 10,
                               "supported_color_modes": ["brightness"]},
     "light.front_door": {"friendly_name": "Front Door", "brightness": 255,
@@ -412,11 +419,100 @@ def test_climate():
           and bp["blueprint"]["input"]["expire_action"]["default"] == [])
 
 
+def light_discovery(eid):
+    env = env_for(WORLD, ATTRS)
+    disc = load("propsense_publish_discovery.yaml")
+    inputs = pm.inputs("alpha")
+    loop = [a for a in disc["actions"] if "repeat" in a][1]["repeat"]["sequence"]
+    ctx = run_vars(env, loop[0]["variables"], inputs, {"repeat": {"item": eid}, "unit": "alpha",
+                                                        "area_prefix": "", "hub_status_topic": "propsense/hub/status",
+                                                        "common_area_names": []})
+    branch = next(b for b in loop[1]["choose"] if "'light'" in b["conditions"])
+    out = render(env, branch["sequence"][0]["data"]["payload"], ctx)
+    return json.loads(out) if isinstance(out, str) else out
+
+
+def light_state(eid, state, attrs):
+    st = load("propsense_publish_state.yaml")
+    rep = [a for a in st["actions"] if "repeat" in a][0]["repeat"]["sequence"]
+    pub = next(a for a in rep if a.get("action") == "mqtt.publish" and a["data"]["topic"].endswith("/state"))
+    world = [State(e, state if e == eid else "on") for e in pm.ENTITIES]
+    e = env_for(world, {eid: attrs})
+    ctx = run_vars(e, rep[0]["variables"], {}, {"repeat": {"item": eid}, "unit": "alpha"})
+    out = render(e, pub["data"]["payload"], ctx)
+    return json.loads(out) if isinstance(out, str) else out
+
+
+def test_lights():
+    # ---- discovery: advertised capabilities ----
+    d = light_discovery("light.alpha_color")
+    check("light discovery: colour-capable light that is OFF still advertises colour modes",
+          d["supported_color_modes"] == ["color_temp", "xy"])
+    check("light discovery: color_temp uses kelvin with the light's own range",
+          d.get("color_temp_kelvin") is True and d["min_kelvin"] == 2000 and d["max_kelvin"] == 6535)
+    check("light discovery: schema json and command topic", d["schema"] == "json" and d["command_topic"].endswith("/set"))
+    d = light_discovery("light.alpha_rgb")
+    check("light discovery: rgbw maps to rgb with brightness flag",
+          d["supported_color_modes"] == ["rgb"] and d.get("brightness") is True)
+    check("light discovery: hs light", light_discovery("light.alpha_hs")["supported_color_modes"] == ["hs"])
+    check("light discovery: white-only light falls back to brightness",
+          light_discovery("light.alpha_white")["supported_color_modes"] == ["brightness"])
+    check("light discovery: onoff light", light_discovery("light.alpha_onoff")["supported_color_modes"] == ["onoff"])
+    check("light discovery: no attributes at all falls back to onoff",
+          light_discovery("light.alpha_noattr")["supported_color_modes"] == ["onoff"])
+    check("light discovery: brightness-only light stays brightness",
+          light_discovery("light.kitchen_pendant")["supported_color_modes"] == ["brightness"])
+
+    # ---- state payloads ----
+    check("light state: off light sends only state", light_state("light.alpha_color", "off", {}) == {"state": "OFF"})
+    check("light state: colour temperature (kelvin) and mode",
+          light_state("light.alpha_color", "on", {"brightness": 200, "color_mode": "color_temp", "color_temp_kelvin": 3000})
+          == {"state": "ON", "brightness": 200, "color_mode": "color_temp", "color_temp": 3000})
+    check("light state: xy colour",
+          light_state("light.alpha_color", "on", {"brightness": 90, "color_mode": "xy", "xy_color": [0.3, 0.4]})
+          == {"state": "ON", "brightness": 90, "color_mode": "xy", "color": {"x": 0.3, "y": 0.4}})
+    check("light state: hs colour",
+          light_state("light.alpha_hs", "on", {"brightness": 90, "color_mode": "hs", "hs_color": [120.0, 80.0]})
+          == {"state": "ON", "brightness": 90, "color_mode": "hs", "color": {"h": 120.0, "s": 80.0}})
+    check("light state: rgbw reports as rgb",
+          light_state("light.alpha_rgb", "on", {"brightness": 10, "color_mode": "rgbw", "rgb_color": [1, 2, 3]})
+          == {"state": "ON", "brightness": 10, "color_mode": "rgb", "color": {"r": 1, "g": 2, "b": 3}})
+    check("light state: white mode reports as brightness",
+          light_state("light.alpha_white", "on", {"brightness": 77, "color_mode": "white"})
+          == {"state": "ON", "brightness": 77, "color_mode": "brightness"})
+
+    # ---- commands ----
+    def data(eid, payload):
+        r = bridge("alpha", "alpha/light/" + eid.split(".")[1] + "/set", json.dumps(payload))
+        return r[0][2] if r else None
+    check("light command: color_temp in range", data("light.alpha_color", {"state": "ON", "color_temp": 3000}) == {"color_temp_kelvin": 3000})
+    check("light command: color_temp clamped to max", data("light.alpha_color", {"state": "ON", "color_temp": 9999}) == {"color_temp_kelvin": 6535})
+    check("light command: color_temp clamped to min", data("light.alpha_color", {"state": "ON", "color_temp": 100}) == {"color_temp_kelvin": 2000})
+    check("light command: brightness and color_temp together",
+          data("light.alpha_color", {"state": "ON", "brightness": 128, "color_temp": 4000}) == {"brightness": 128, "color_temp_kelvin": 4000})
+    check("light command: xy colour", data("light.alpha_color", {"state": "ON", "color": {"x": 0.3, "y": 0.4}}) == {"xy_color": [0.3, 0.4]})
+    check("light command: xy clamped to 0..1", data("light.alpha_color", {"state": "ON", "color": {"x": 5, "y": -2}}) == {"xy_color": [1.0, 0.0]})
+    check("light command: hs colour accepted and clamped",
+          data("light.alpha_hs", {"state": "ON", "color": {"h": 400, "s": 150}}) == {"hs_color": [360.0, 100.0]})
+    check("light command: rgb clamped (light supports rgbw)",
+          data("light.alpha_rgb", {"state": "ON", "color": {"r": 300, "g": -4, "b": 10}}) == {"rgb_color": [255, 0, 10]})
+    check("light command: hs rejected on an xy-only light (still turns on)",
+          data("light.alpha_color", {"state": "ON", "color": {"h": 10, "s": 10}}) == {})
+    check("light command: color_temp rejected on a light without it",
+          data("light.alpha_hs", {"state": "ON", "color_temp": 3000}) == {})
+    check("light command: colour rejected on an onoff light",
+          data("light.alpha_onoff", {"state": "ON", "color": {"r": 1, "g": 2, "b": 3}}) == {})
+    check("light command: non-object colour ignored",
+          data("light.alpha_color", {"state": "ON", "color": "red"}) == {})
+    check("light command: OFF still works", bridge("alpha", "alpha/light/alpha_color/set", '{"state":"OFF"}')[0][0] == "light.turn_off")
+
+
 if __name__ == "__main__":
     test_syntax_and_exposed()
     test_bridge()
     test_payloads()
     test_climate()
+    test_lights()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILED:")

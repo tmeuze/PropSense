@@ -10,7 +10,9 @@
 #     A service or entity is never taken from the payload.
 #   - The entity comes from the topic and must be in the `exposed` list.
 #   - Locks, covers, climate, scripts etc. are not handled here at all.
-#   - Brightness is parsed as an integer and clamped to 1..255.
+#   - Brightness is clamped to 1..255. Colour temperature (kelvin) is clamped to
+#     the light's own range. Colour (hs, xy, rgb) is clamped to its valid range
+#     and only accepted if the light supports that colour model.
 #   - Anything unparseable is ignored (no error, no action).
 #
 # The `command_topic` input must be exactly "<unit>/+/+/set". The broker ACL
@@ -106,8 +108,19 @@ actions:
             target:
               entity_id: "{{ entity }}"
             data: >-
-              {{ {'brightness': [[p.brightness | int(255), 1] | max, 255] | min}
-                 if p.brightness is defined else {} }}
+              {% set modes = state_attr(entity, 'supported_color_modes') or [] %}
+              {% set c = p.color if (p.color is defined and p.color is mapping) else {} %}
+              {% set d = {} %}
+              {% if p.brightness is defined %}{% set d = d | combine({'brightness': [[p.brightness | int(255), 1] | max, 255] | min}) %}{% endif %}
+              {% if p.color_temp is defined and 'color_temp' in modes %}
+                {% set lo = state_attr(entity, 'min_color_temp_kelvin') | int(2000) %}
+                {% set hi = state_attr(entity, 'max_color_temp_kelvin') | int(6535) %}
+                {% set d = d | combine({'color_temp_kelvin': [[p.color_temp | int(hi), lo] | max, hi] | min}) %}
+              {% endif %}
+              {% if 'h' in c and 's' in c and 'hs' in modes %}{% set d = d | combine({'hs_color': [[[c.h | float(0), 0] | max, 360] | min, [[c.s | float(0), 0] | max, 100] | min]}) %}{% endif %}
+              {% if 'x' in c and 'y' in c and 'xy' in modes %}{% set d = d | combine({'xy_color': [[[c.x | float(0), 0] | max, 1] | min, [[c.y | float(0), 0] | max, 1] | min]}) %}{% endif %}
+              {% if 'r' in c and 'g' in c and 'b' in c and (modes | select('in', ['rgb', 'rgbw', 'rgbww']) | list | length > 0) %}{% set d = d | combine({'rgb_color': [[[c.r | int(0), 0] | max, 255] | min, [[c.g | int(0), 0] | max, 255] | min, [[c.b | int(0), 0] | max, 255] | min]}) %}{% endif %}
+              {{ d }}
       - conditions: "{{ domain == 'light' and (p.state | default('') | upper) == 'OFF' }}"
         sequence:
           - action: light.turn_off

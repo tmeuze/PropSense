@@ -41,6 +41,12 @@ ENTITIES = {
     "light.alpha_lamp": ("alpha", {"Live: Alpha"}),
     "light.kitchen_pendant": ("l2_kitchen", {"Live: Alpha"}),
     "light.front_door": ("entry", {"Live: Shared"}),
+    "light.alpha_color": ("alpha", {"Live: Alpha"}),      # color_temp + xy, currently off
+    "light.alpha_rgb": ("alpha", {"Live: Alpha"}),        # rgbw
+    "light.alpha_hs": ("alpha", {"Live: Alpha"}),         # hs
+    "light.alpha_white": ("alpha", {"Live: Alpha"}),      # white only
+    "light.alpha_onoff": ("alpha", {"Live: Alpha"}),      # onoff
+    "light.alpha_noattr": ("alpha", {"Live: Alpha"}),     # no capability attributes at all
     "switch.entry_relay": ("entry", {"Live: Shared"}),
     "sensor.beta_temp": ("beta", {"Live: Beta"}),
     "light.unlabelled": ("alpha", set()),

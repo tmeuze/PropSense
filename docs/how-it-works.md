@@ -26,6 +26,24 @@ Entities are available on a unit only while the entity's own availability is
 | command bridge | MQTT message on `<unit>/+/+/set` | Re-checks the whitelist, then calls a hardcoded light or switch service |
 | climate | registry events, state changes of the two entities, and its command topic | Publishes a synthetic thermostat; clamps and applies setpoints |
 
+## Lights
+The unit's light mirrors what the hub light can do, because the discovery
+payload carries the hub light's `supported_color_modes`:
+
+| Hub light modes | Unit gets |
+|---|---|
+| `onoff` (or none reported) | on/off |
+| `brightness`, or only `white` | brightness |
+| `color_temp` | colour temperature in kelvin, with the light's own min/max |
+| `hs`, `xy` | that colour model |
+| `rgb`, `rgbw`, `rgbww` | rgb (and brightness) |
+
+State carries brightness, `color_mode`, colour temperature and colour. Commands
+are clamped (brightness 1..255, colour temperature to the light's range, colour
+to its valid range) and a colour or colour temperature is only accepted if the
+hub light supports that model. A light that is currently off still advertises
+its capabilities (they come from the entity, not from its current state).
+
 ## Climate (synthetic thermostat)
 `propsense_climate` publishes one MQTT climate entity per room per unit, built
 from hub entities, so a guest sees what your controller is actually doing and

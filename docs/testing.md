@@ -15,6 +15,13 @@ It cannot prove HA's own functions behave like the stubs.
 Both suites were also checked by breaking the templates on purpose (dropping a
 floor check, adding a domain, removing a clamp); every break was caught.
 
+## Lights on a real instance
+Offline tests cover discovery modes, state payloads and command clamping with
+stand-ins. On a real hub check one light of each kind you own (on/off only,
+dimmable, colour temperature, colour): the unit's card should offer exactly the
+controls the hub light has, and a colour or colour temperature chosen on the
+unit should reach the real light.
+
 ## Climate on a real instance
 The offline tests cover the policy, clamp, topics, payloads, event filter and
 the expiry wiring. They cannot cover your climate entity. Before relying on it:
