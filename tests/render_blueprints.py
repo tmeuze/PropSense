@@ -102,6 +102,12 @@ def render(env, tpl, ctx):
         return out
 
 
+def render_data(env, data, ctx):
+    if isinstance(data, dict):
+        return {k: render_data(env, v, ctx) for k, v in data.items()}
+    return render(env, data, ctx)
+
+
 def run_vars(env, variables, inputs, ctx):
     ctx = dict(ctx)
     for k, v in variables.items():
@@ -119,7 +125,7 @@ def check(name, cond):
         FAILS.append(name)
 
 
-WORLD = [State(e, "on") for e in pm.ENTITIES]
+WORLD = [State(e, "unavailable" if e in pm.UNAVAILABLE else ("unknown" if e.startswith("scene.") else "on")) for e in pm.ENTITIES]
 ATTRS = {
     "light.alpha_color": {"friendly_name": "Alpha Color", "supported_color_modes": ["color_temp", "xy"],
                           "min_color_temp_kelvin": 2000, "max_color_temp_kelvin": 6535},
@@ -128,6 +134,13 @@ ATTRS = {
     "light.alpha_white": {"friendly_name": "Alpha White", "supported_color_modes": ["white"]},
     "light.alpha_onoff": {"friendly_name": "Alpha Onoff", "supported_color_modes": ["onoff"]},
     "light.alpha_noattr": {"friendly_name": "Alpha Noattr"},
+    "light.alpha_effects": {"friendly_name": "Alpha Effects", "supported_color_modes": ["brightness"],
+                            "effect_list": ["rainbow", "pulse"]},
+    "fan.alpha_fan": {"friendly_name": "Alpha Fan", "supported_features": 15, "preset_modes": ["auto", "sleep"]},
+    "fan.alpha_basic": {"friendly_name": "Alpha Basic", "supported_features": 48},
+    "scene.alpha_movie": {"friendly_name": "Alpha Movie"},
+    "cover.alpha_blind": {"friendly_name": "Alpha Blind", "supported_features": 15},
+    "cover.alpha_nodc": {"friendly_name": "Alpha Nodc", "supported_features": 3},
     "light.kitchen_pendant": {"friendly_name": "Kitchen Pendant", "brightness": 10,
                               "supported_color_modes": ["brightness"]},
     "light.front_door": {"friendly_name": "Front Door", "brightness": 255,
@@ -138,6 +151,9 @@ ATTRS = {
     "sensor.beta_temp": {"friendly_name": "Beta Temp Temperature", "device_class": "temperature",
                          "unit_of_measurement": "°F"},
 }
+
+for _e, _c in pm.COVER_CLASS.items():
+    ATTRS.setdefault(_e, {})["device_class"] = _c
 
 
 def test_syntax_and_exposed():
@@ -165,8 +181,8 @@ def test_syntax_and_exposed():
         model = pm.exposed(unit)
         check(f"{unit}: discovery exposed == model", e_disc == model)
         check(f"{unit}: state exposed == model", e_state == model)
-        check(f"{unit}: command exposed == model restricted to light/switch",
-              e_cmd == {e for e in model if e.split('.')[0] in ('light', 'switch')})
+        check(f"{unit}: command exposed == model restricted to controllable domains",
+              e_cmd == {e for e in model if e.split('.')[0] in ('light', 'switch', 'fan', 'scene', 'cover')})
         check(f"{unit}: stale list is every non-exposed light/switch/sensor",
               set(ctx["stale"]) == {s.entity_id for s in WORLD
                                     if s.domain in pm.DOMAINS} - model)
@@ -190,7 +206,7 @@ def bridge(unit, topic, payload):
         if render(env, branch["conditions"], ctx) is True:
             seq = branch["sequence"][0]
             data = seq.get("data")
-            data = render(env, data, ctx) if data is not None else {}
+            data = render_data(env, data, ctx) if data is not None else {}
             return [(seq["action"], render(env, seq["target"]["entity_id"], ctx), data)]
     return []
 
@@ -507,12 +523,133 @@ def test_lights():
     check("light command: OFF still works", bridge("alpha", "alpha/light/alpha_color/set", '{"state":"OFF"}')[0][0] == "light.turn_off")
 
 
+def discovery_payload(eid):
+    domain = eid.split(".")[0]
+    env = env_for(WORLD, ATTRS)
+    disc = load("propsense_publish_discovery.yaml")
+    inputs = pm.inputs("alpha")
+    loop = [a for a in disc["actions"] if "repeat" in a][1]["repeat"]["sequence"]
+    ctx = run_vars(env, loop[0]["variables"], inputs, {"repeat": {"item": eid}, "unit": "alpha",
+                                                        "area_prefix": "", "hub_status_topic": "propsense/hub/status",
+                                                        "common_area_names": []})
+    branch = next(b for b in loop[1]["choose"] if f"'{domain}'" in b["conditions"])
+    out = render(env, branch["sequence"][0]["data"]["payload"], ctx)
+    return json.loads(out) if isinstance(out, str) else out
+
+
+def state_run(eid, state, attrs):
+    """Returns (availability payload, state payload or None if not published)."""
+    st = load("propsense_publish_state.yaml")
+    rep = [a for a in st["actions"] if "repeat" in a][0]["repeat"]["sequence"]
+    world = [State(e, state if e == eid else "on") for e in pm.ENTITIES]
+    e = env_for(world, {eid: attrs})
+    ctx = run_vars(e, rep[0]["variables"], {}, {"repeat": {"item": eid}, "unit": "alpha"})
+    avail = render(e, rep[1]["data"]["payload"], ctx)
+    gate = render(e, rep[2]["value_template"], ctx)
+    if gate is not True:
+        return avail, None
+    out = render(e, rep[3]["data"]["payload"], ctx)
+    return avail, (json.loads(out) if isinstance(out, str) and out.startswith("{") else out)
+
+
+def test_domains():
+    # ---------- discovery ----------
+    for eid in ["light.alpha_lamp", "switch.entry_relay", "sensor.beta_temp"]:
+        check(f"discovery {eid}: has a state topic", "state_topic" in discovery_payload(eid))
+    d = discovery_payload("scene.alpha_movie")
+    check("discovery scene: command-only (no state_topic), payload_on ON",
+          "state_topic" not in d and d["command_topic"].endswith("/set") and d["payload_on"] == "ON")
+    d = discovery_payload("fan.alpha_fan")
+    check("discovery fan: JSON state and command through templates",
+          d["state_topic"].endswith("/state") and d["command_topic"].endswith("/set")
+          and d["state_value_template"] == "{{ value_json.state }}" and d["command_template"] == '{"state": "{{ value }}"}')
+    check("discovery fan: speed, preset, oscillation and direction all advertised",
+          all(k in d for k in ("percentage_command_topic", "preset_mode_command_topic", "oscillation_command_topic", "direction_command_topic"))
+          and d["preset_modes"] == ["auto", "sleep"])
+    check("discovery fan: command templates build JSON",
+          d["percentage_command_template"] == '{"percentage": {{ value }}}'
+          and d["preset_mode_command_template"] == '{"preset_mode": "{{ value }}"}'
+          and d["direction_command_template"] == '{"direction": "{{ value }}"}'
+          and "oscillating" in d["oscillation_command_template"])
+    d = discovery_payload("fan.alpha_basic")
+    check("discovery fan: on/off-only fan advertises no extra controls",
+          not any(k.startswith(("percentage", "preset", "oscillation", "direction")) for k in d))
+    d = discovery_payload("cover.alpha_blind")
+    check("discovery cover: open, close, stop as JSON commands, device class",
+          d["payload_open"] == '{"command": "open"}' and d["payload_close"] == '{"command": "close"}'
+          and d["payload_stop"] == '{"command": "stop"}' and d["device_class"] == "blind")
+    check("discovery cover: position uses the state topic and a JSON set command",
+          d["position_topic"].endswith("/state") and d["set_position_topic"].endswith("/set")
+          and d["set_position_template"] == '{"position": {{ position }}}')
+    d = discovery_payload("cover.alpha_nodc")
+    check("discovery cover: no stop button and no position without those features",
+          d["payload_stop"] is None and "set_position_topic" not in d and "device_class" not in d)
+    d = discovery_payload("light.alpha_effects")
+    check("discovery light: effects advertised from the entity's effect list",
+          d.get("effect") is True and d["effect_list"] == ["rainbow", "pulse"])
+    check("discovery light: no effects when the light has none", "effect" not in discovery_payload("light.alpha_color"))
+
+    # ---------- state ----------
+    avail, st = state_run("scene.alpha_movie", "unknown", {})
+    check("state scene: 'unknown' (never used) is still online, and no state is published",
+          avail == "online" and st is None)
+    check("state scene: unavailable is offline", state_run("scene.alpha_movie", "unavailable", {})[0] == "offline")
+    check("state sensor: 'unknown' is offline", state_run("sensor.beta_temp", "unknown", {})[0] == "offline")
+    check("state fan: all fields",
+          state_run("fan.alpha_fan", "on", {"percentage": 40, "preset_mode": "auto", "oscillating": True, "direction": "forward"})[1]
+          == {"state": "ON", "percentage": 40, "preset_mode": "auto", "oscillating": True, "direction": "forward"})
+    check("state fan: off with no attributes", state_run("fan.alpha_fan", "off", {})[1] == {"state": "OFF"})
+    check("state cover: state and position",
+          state_run("cover.alpha_blind", "open", {"current_position": 70})[1] == {"state": "open", "position": 70})
+    check("state cover: opening without a position",
+          state_run("cover.alpha_blind", "opening", {})[1] == {"state": "opening"})
+    check("state light: effect included",
+          state_run("light.alpha_effects", "on", {"brightness": 5, "effect": "rainbow", "color_mode": "brightness"})[1]
+          == {"state": "ON", "brightness": 5, "effect": "rainbow", "color_mode": "brightness"})
+
+    # ---------- commands ----------
+    def cmd(eid, payload):
+        dom, obj = eid.split(".")
+        raw = payload if isinstance(payload, str) else json.dumps(payload)
+        r = bridge("alpha", f"alpha/{dom}/{obj}/set", raw)
+        return (r[0][0], r[0][2]) if r else None
+    check("fan command: ON", cmd("fan.alpha_fan", {"state": "ON"}) == ("fan.turn_on", {}))
+    check("fan command: OFF", cmd("fan.alpha_fan", {"state": "OFF"}) == ("fan.turn_off", {}))
+    check("fan command: percentage", cmd("fan.alpha_fan", {"percentage": 50}) == ("fan.set_percentage", {"percentage": 50}))
+    check("fan command: percentage clamped to 100", cmd("fan.alpha_fan", {"percentage": 150})[1] == {"percentage": 100})
+    check("fan command: percentage clamped to 0", cmd("fan.alpha_fan", {"percentage": -5})[1] == {"percentage": 0})
+    check("fan command: non-numeric percentage ignored", cmd("fan.alpha_fan", {"percentage": "abc"}) is None)
+    check("fan command: percentage rejected on a fan without speed", cmd("fan.alpha_basic", {"percentage": 50}) is None)
+    check("fan command: valid preset", cmd("fan.alpha_fan", {"preset_mode": "sleep"}) == ("fan.set_preset_mode", {"preset_mode": "sleep"}))
+    check("fan command: unknown preset ignored", cmd("fan.alpha_fan", {"preset_mode": "turbo"}) is None)
+    check("fan command: oscillation", cmd("fan.alpha_fan", {"oscillating": True}) == ("fan.oscillate", {"oscillating": True}))
+    check("fan command: non-boolean oscillation ignored", cmd("fan.alpha_fan", {"oscillating": "yes"}) is None)
+    check("fan command: oscillation rejected on a basic fan", cmd("fan.alpha_basic", {"oscillating": True}) is None)
+    check("fan command: direction", cmd("fan.alpha_fan", {"direction": "reverse"}) == ("fan.set_direction", {"direction": "reverse"}))
+    check("fan command: invalid direction ignored", cmd("fan.alpha_fan", {"direction": "sideways"}) is None)
+    check("scene command: ON activates", cmd("scene.alpha_movie", "ON") == ("scene.turn_on", {}))
+    check("scene command: anything else ignored", cmd("scene.alpha_movie", "OFF") is None and cmd("scene.alpha_movie", {"state": "ON"}) is None)
+    check("cover command: open", cmd("cover.alpha_blind", {"command": "open"}) == ("cover.open_cover", {}))
+    check("cover command: close", cmd("cover.alpha_blind", {"command": "close"}) == ("cover.close_cover", {}))
+    check("cover command: stop", cmd("cover.alpha_blind", {"command": "stop"}) == ("cover.stop_cover", {}))
+    check("cover command: position", cmd("cover.alpha_blind", {"position": 40}) == ("cover.set_cover_position", {"position": 40}))
+    check("cover command: position clamped", cmd("cover.alpha_blind", {"position": 250})[1] == {"position": 100})
+    check("cover command: position rejected without the feature", cmd("cover.alpha_nodc", {"position": 40}) is None)
+    check("cover command: stop rejected without the feature", cmd("cover.alpha_nodc", {"command": "stop"}) is None)
+    check("cover command: unknown command ignored", cmd("cover.alpha_blind", {"command": "explode"}) is None)
+    check("cover command: blocked class ignored even for a valid command", cmd("cover.alpha_garage", {"command": "open"}) is None)
+    check("cover command: unavailable cover ignored", cmd("cover.alpha_unavail", {"command": "open"}) is None)
+    check("light command: valid effect", cmd("light.alpha_effects", {"state": "ON", "effect": "rainbow"}) == ("light.turn_on", {"effect": "rainbow"}))
+    check("light command: unknown effect dropped (still turns on)", cmd("light.alpha_effects", {"state": "ON", "effect": "evil"}) == ("light.turn_on", {}))
+
+
 if __name__ == "__main__":
     test_syntax_and_exposed()
     test_bridge()
     test_payloads()
     test_climate()
     test_lights()
+    test_domains()
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILED:")

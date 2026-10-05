@@ -16,7 +16,8 @@ import sys
 from pathlib import Path
 
 ACL = Path(__file__).resolve().parent.parent / "docs" / "emqx-acl-example.conf"
-DOMAINS = {"light", "switch", "sensor", "binary_sensor"}
+DOMAINS = {"light", "switch", "sensor", "binary_sensor", "fan", "scene", "cover"}
+COVER_BLOCKED = {"garage", "gate", "door"}
 
 # --------------------------------------------------------------------------
 # 1. Whitelist policy model (mirror of the `exposed` template)
@@ -35,6 +36,9 @@ UNIT_FLOORS = {"alpha": ["alpha"], "beta": ["beta"]}
 UNIT_LABEL = {"alpha": "Live: Alpha", "beta": "Live: Beta"}
 COMMON_LABEL = "Live: Shared"
 COMMON_FLOORS = ["shared"]
+COVER_CLASS = {"cover.alpha_blind": "blind", "cover.alpha_nodc": None, "cover.alpha_garage": "garage",
+               "cover.alpha_gate": "gate", "cover.alpha_unavail": "blind", "cover.garage": "garage"}
+UNAVAILABLE = {"cover.alpha_unavail"}
 # entity -> (area or None, labels)
 ENTITIES = {
     "light.beta_lamp": ("l1_living", {"Live: Beta"}),
@@ -47,6 +51,15 @@ ENTITIES = {
     "light.alpha_white": ("alpha", {"Live: Alpha"}),      # white only
     "light.alpha_onoff": ("alpha", {"Live: Alpha"}),      # onoff
     "light.alpha_noattr": ("alpha", {"Live: Alpha"}),     # no capability attributes at all
+    "light.alpha_effects": ("alpha", {"Live: Alpha"}),    # has an effect list
+    "fan.alpha_fan": ("alpha", {"Live: Alpha"}),          # speed, oscillate, direction, presets
+    "fan.alpha_basic": ("alpha", {"Live: Alpha"}),        # on/off only
+    "scene.alpha_movie": ("alpha", {"Live: Alpha"}),      # state "unknown" until used
+    "cover.alpha_blind": ("alpha", {"Live: Alpha"}),      # open, close, stop, position
+    "cover.alpha_nodc": ("alpha", {"Live: Alpha"}),       # open/close only, no device class
+    "cover.alpha_garage": ("alpha", {"Live: Alpha"}),     # blocked class
+    "cover.alpha_gate": ("alpha", {"Live: Alpha"}),       # blocked class
+    "cover.alpha_unavail": ("alpha", {"Live: Alpha"}),    # unavailable right now
     "switch.entry_relay": ("entry", {"Live: Shared"}),
     "sensor.beta_temp": ("beta", {"Live: Beta"}),
     "light.unlabelled": ("alpha", set()),
@@ -68,6 +81,7 @@ def inputs(unit):
     return {"unit": unit, "unit_label": UNIT_LABEL[unit], "unit_floors": UNIT_FLOORS[unit],
             "common_label": COMMON_LABEL, "common_floors": COMMON_FLOORS,
             "hub_status_topic": "propsense/hub/status", "area_prefix_regex": "^L[0-9]+ ",
+            "blocked_cover_classes": ["garage", "gate", "door"],
             "command_topic": f"{unit}/+/+/set"}
 
 
@@ -79,6 +93,8 @@ def exposed(unit):
     out = set()
     for e, (area, labels) in ENTITIES.items():
         if e.split(".")[0] not in DOMAINS:
+            continue
+        if e.startswith("cover.") and (e in UNAVAILABLE or COVER_CLASS.get(e) in COVER_BLOCKED):
             continue
         if (UNIT_LABEL[unit] in labels and area in ua) or (COMMON_LABEL in labels and area in ca):
             out.add(e)
@@ -110,8 +126,15 @@ def test_policy(f):
     check("entity with no area is not exposed", "light.no_area" not in d | k, f)
     check("Meta floor areas are never exposed",
           not ({"light.staging_test", "switch.services_pump"} & (d | k)), f)
-    check("lock/camera/cover domains are never exposed",
-          not ({"lock.front_door", "camera.front", "cover.garage"} & (d | k)), f)
+    check("lock and camera domains are never exposed",
+          not ({"lock.front_door", "camera.front"} & (d | k)), f)
+    check("covers of an allowed class are exposed",
+          {"cover.alpha_blind", "cover.alpha_nodc"} <= d, f)
+    check("garage and gate covers are blocked by default",
+          not ({"cover.alpha_garage", "cover.alpha_gate", "cover.garage"} & (d | k)), f)
+    check("a cover that is unavailable is never exposed", "cover.alpha_unavail" not in d, f)
+    check("fans and scenes are exposed",
+          {"fan.alpha_fan", "fan.alpha_basic", "scene.alpha_movie"} <= d, f)
     check("unknown unit has no config (KeyError, fail closed)",
           _raises(lambda: exposed("nobody")), f)
 
@@ -132,7 +155,7 @@ def bridge_accepts(unit, topic, payload="ON"):
     if len(parts) != 4 or parts[0] != unit or parts[3] != "set":
         return False
     entity = f"{parts[1]}.{parts[2]}"
-    return parts[1] in {"light", "switch"} and entity in exposed(unit)
+    return parts[1] in {"light", "switch", "fan", "scene", "cover"} and entity in exposed(unit)
 
 
 def test_bridge(f):

@@ -73,14 +73,18 @@ use, and per-instance broker users (see
 
 ## Limits you should know
 
-- Lights, switches, sensors, binary sensors and (via the climate blueprint) a
-  synthetic thermostat. **No locks, covers, cameras or scripts**, on purpose.
+- Lights (with colour and effects), switches, sensors, binary sensors, fans, scenes, covers, and (via the climate blueprint) a synthetic thermostat. **No locks, alarm panels, cameras or scripts**, on purpose. Media players have no MQTT equivalent and are not supported.
 - The state blueprint filters every `state_changed` event. Fine for hundreds of
   entities; a custom integration would scale better.
 - Deleting an entity from the hub entirely leaves a stale retained discovery
   topic on the broker.
-- Lights support on/off, brightness, colour temperature and colour (hs, xy, rgb; `rgbw`/`rgbww` appear as rgb). Effects, transitions and white-channel control are not carried.
+- Lights support on/off, brightness, colour temperature, colour (hs, xy, rgb; `rgbw`/`rgbww` appear as rgb) and effects. Transitions and white-channel control are not carried. Covers carry open, close, stop and position (no tilt).
+- **A scene is exposed as a button, but its contents are the privilege.** Activating it can change any entity the scene touches, including devices that belong to other units; PropSense cannot check that. Only label scenes whose contents are safe for that unit.
+- Covers of the classes garage, gate and door are blocked by default (an input). A cover whose state is unavailable is never exposed.
 - Synthetic climate is the least-tested blueprint: its policy, clamp and payload logic are tested offline, but the call into your climate entity is not, and guest-override expiry is lost on a Home Assistant restart.
+
+## Roadmap
+These blueprints are the simple tier. The templates are long and only testable through stand-ins, so as domains grow the plan is a **custom integration** (installable through HACS) in this same repo: per-domain adapters as ordinary, unit-tested Python, subscriptions only to exposed entities, a config UI for units, audit logging, rate limiting and stale-discovery cleanup. The blueprints would stay as the lightweight option. Nothing of that exists yet.
 
 ## Tests
 

@@ -69,6 +69,27 @@ blueprint:
       default: ""
       selector:
         text:
+    blocked_cover_classes:
+      name: Blocked cover device classes
+      description: "Covers of these device classes are never exposed (safety default: garage doors, gates, doors). A cover whose state is unavailable is never exposed."
+      default:
+        - garage
+        - gate
+        - door
+      selector:
+        select:
+          multiple: true
+          options:
+            - awning
+            - blind
+            - curtain
+            - damper
+            - door
+            - garage
+            - gate
+            - shade
+            - shutter
+            - window
 
 mode: restart
 max_exceeded: silent
@@ -100,7 +121,8 @@ variables:
   common_floors: !input common_floors
   hub_status_topic: !input hub_status_topic
   area_prefix: !input area_prefix_regex
-  domains: ["light", "switch", "sensor", "binary_sensor"]
+  blocked_covers: !input blocked_cover_classes
+  domains: ["light", "switch", "sensor", "binary_sensor", "fan", "scene", "cover"]
 
 actions:
   # Debounce bursts of registry events (mode: restart cancels earlier runs).
@@ -111,10 +133,10 @@ actions:
         {% for f in unit_floors %}{% set ns.ua = ns.ua + floor_areas(f) %}{% endfor %}
         {% for f in common_floors %}{% set ns.ca = ns.ca + floor_areas(f) %}{% endfor %}
         {% for e in label_entities(unit_label) %}
-          {% if area_id(e) in ns.ua and e.split('.')[0] in domains and e not in ns.out %}{% set ns.out = ns.out + [e] %}{% endif %}
+          {% if area_id(e) in ns.ua and e.split('.')[0] in domains and e not in ns.out and not (e.startswith('cover.') and (states(e) in ['unavailable', 'unknown'] or state_attr(e, 'device_class') in blocked_covers)) %}{% set ns.out = ns.out + [e] %}{% endif %}
         {% endfor %}
         {% for e in label_entities(common_label) %}
-          {% if area_id(e) in ns.ca and e.split('.')[0] in domains and e not in ns.out %}{% set ns.out = ns.out + [e] %}{% endif %}
+          {% if area_id(e) in ns.ca and e.split('.')[0] in domains and e not in ns.out and not (e.startswith('cover.') and (states(e) in ['unavailable', 'unknown'] or state_attr(e, 'device_class') in blocked_covers)) %}{% set ns.out = ns.out + [e] %}{% endif %}
         {% endfor %}
         {{ ns.out }}
       common_area_names: >-
@@ -175,7 +197,6 @@ actions:
                 'device': device,
                 'name': ent_name,
                 'unique_id': unit ~ '_' ~ repeat.item.replace('.', '_'),
-                'state_topic': base ~ '/state',
                 'availability': [{'topic': hub_status_topic}, {'topic': base ~ '/availability'}],
                 'availability_mode': 'all'
               } }}
@@ -191,9 +212,11 @@ actions:
                       {% set ns = namespace(m=[]) %}
                       {% for x in raw %}{% set y = 'rgb' if x in ['rgbw', 'rgbww'] else x %}{% if y in ['onoff', 'brightness', 'color_temp', 'hs', 'xy', 'rgb'] and y not in ns.m %}{% set ns.m = ns.m + [y] %}{% endif %}{% endfor %}
                       {% if not ns.m %}{% set ns.m = ['brightness'] if raw else ['onoff'] %}{% endif %}
-                      {% set d = common | combine({'schema': 'json', 'command_topic': base ~ '/set', 'supported_color_modes': ns.m}) %}
+                      {% set d = common | combine({'schema': 'json', 'state_topic': base ~ '/state', 'command_topic': base ~ '/set', 'supported_color_modes': ns.m}) %}
                       {% if 'color_temp' in ns.m %}{% set d = d | combine({'color_temp_kelvin': true, 'min_kelvin': state_attr(repeat.item, 'min_color_temp_kelvin') | int(2000), 'max_kelvin': state_attr(repeat.item, 'max_color_temp_kelvin') | int(6535)}) %}{% endif %}
                       {% if 'rgb' in ns.m %}{% set d = d | combine({'brightness': true}) %}{% endif %}
+                      {% set el = state_attr(repeat.item, 'effect_list') %}
+                      {% if el %}{% set d = d | combine({'effect': true, 'effect_list': el}) %}{% endif %}
                       {{ d | to_json }}
             - conditions: "{{ domain == 'switch' }}"
               sequence:
@@ -202,7 +225,7 @@ actions:
                     topic: "{{ unit }}/ha/switch/{{ obj }}/config"
                     retain: true
                     payload: >-
-                      {{ common | combine({'command_topic': base ~ '/set'}) | to_json }}
+                      {{ common | combine({'state_topic': base ~ '/state', 'command_topic': base ~ '/set'}) | to_json }}
             - conditions: "{{ domain == 'sensor' }}"
               sequence:
                 - action: mqtt.publish
@@ -211,6 +234,7 @@ actions:
                     retain: true
                     payload: >-
                       {{ common | combine({
+                        'state_topic': base ~ '/state',
                         'device_class': state_attr(repeat.item, 'device_class'),
                         'unit_of_measurement': state_attr(repeat.item, 'unit_of_measurement')
                       }) | to_json }}
@@ -221,4 +245,44 @@ actions:
                     topic: "{{ unit }}/ha/binary_sensor/{{ obj }}/config"
                     retain: true
                     payload: >-
-                      {{ common | combine({'device_class': state_attr(repeat.item, 'device_class')}) | to_json }}
+                      {{ common | combine({'state_topic': base ~ '/state', 'device_class': state_attr(repeat.item, 'device_class')}) | to_json }}
+            - conditions: "{{ domain == 'fan' }}"
+              sequence:
+                - action: mqtt.publish
+                  data:
+                    topic: "{{ unit }}/ha/fan/{{ obj }}/config"
+                    retain: true
+                    # One JSON state topic and one JSON command topic; the unit
+                    # converts with templates. Feature bits: 1 speed, 2 oscillate,
+                    # 4 direction, 8 preset mode.
+                    payload: >-
+                      {% set f = state_attr(repeat.item, 'supported_features') | int(0) %}
+                      {% set d = common | combine({'state_topic': base ~ '/state', 'command_topic': base ~ '/set', 'command_template': '{"state": "{{ value }}"}', 'state_value_template': '{{ value_json.state }}'}) %}
+                      {% if (f // 1) % 2 == 1 %}{% set d = d | combine({'percentage_command_topic': base ~ '/set', 'percentage_command_template': '{"percentage": {{ value }}}', 'percentage_state_topic': base ~ '/state', 'percentage_value_template': '{{ value_json.percentage }}', 'speed_range_min': 1, 'speed_range_max': 100}) %}{% endif %}
+                      {% if (f // 8) % 2 == 1 and state_attr(repeat.item, 'preset_modes') %}{% set d = d | combine({'preset_modes': state_attr(repeat.item, 'preset_modes'), 'preset_mode_command_topic': base ~ '/set', 'preset_mode_command_template': '{"preset_mode": "{{ value }}"}', 'preset_mode_state_topic': base ~ '/state', 'preset_mode_value_template': '{{ value_json.preset_mode }}'}) %}{% endif %}
+                      {% if (f // 2) % 2 == 1 %}{% set d = d | combine({'oscillation_command_topic': base ~ '/set', 'oscillation_command_template': '{"oscillating": {{ "true" if value == "oscillate_on" else "false" }}}', 'oscillation_state_topic': base ~ '/state', 'oscillation_value_template': '{{ "oscillate_on" if value_json.oscillating else "oscillate_off" }}'}) %}{% endif %}
+                      {% if (f // 4) % 2 == 1 %}{% set d = d | combine({'direction_command_topic': base ~ '/set', 'direction_command_template': '{"direction": "{{ value }}"}', 'direction_state_topic': base ~ '/state', 'direction_value_template': '{{ value_json.direction }}'}) %}{% endif %}
+                      {{ d | to_json }}
+            - conditions: "{{ domain == 'scene' }}"
+              sequence:
+                - action: mqtt.publish
+                  data:
+                    topic: "{{ unit }}/ha/scene/{{ obj }}/config"
+                    retain: true
+                    # MQTT scenes are command-only: no state topic.
+                    payload: >-
+                      {{ common | combine({'command_topic': base ~ '/set', 'payload_on': 'ON'}) | to_json }}
+            - conditions: "{{ domain == 'cover' }}"
+              sequence:
+                - action: mqtt.publish
+                  data:
+                    topic: "{{ unit }}/ha/cover/{{ obj }}/config"
+                    retain: true
+                    # Feature bits: 1 open, 2 close, 4 set position, 8 stop.
+                    # A null payload hides that button. Tilt is not carried.
+                    payload: >-
+                      {% set f = state_attr(repeat.item, 'supported_features') | int(0) %}
+                      {% set d = common | combine({'state_topic': base ~ '/state', 'value_template': '{{ value_json.state }}', 'command_topic': base ~ '/set', 'payload_open': ('{"command": "open"}' if (f // 1) % 2 == 1 else none), 'payload_close': ('{"command": "close"}' if (f // 2) % 2 == 1 else none), 'payload_stop': ('{"command": "stop"}' if (f // 8) % 2 == 1 else none)}) %}
+                      {% if state_attr(repeat.item, 'device_class') %}{% set d = d | combine({'device_class': state_attr(repeat.item, 'device_class')}) %}{% endif %}
+                      {% if (f // 4) % 2 == 1 %}{% set d = d | combine({'position_topic': base ~ '/state', 'position_template': '{{ value_json.position }}', 'set_position_topic': base ~ '/set', 'set_position_template': '{"position": {{ position }}}', 'position_open': 100, 'position_closed': 0}) %}{% endif %}
+                      {{ d | to_json }}

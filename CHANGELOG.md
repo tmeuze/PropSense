@@ -6,4 +6,5 @@
 - Optional `area_prefix_regex` and `hub_status_topic` inputs.
 - Climate: optional target sensor, optional mode sensor (hvac action), `temperature_unit` input, optional guest-override expiry with a user-supplied action; runs in parallel mode; state changes filtered from `state_changed`.
 - Lights: capabilities advertised from `supported_color_modes`; colour temperature and colour (hs, xy, rgb) in state and commands, clamped and mode-checked. Fixes colour-capable lights that were off being advertised as on/off only.
+- Fans (speed, presets, oscillation, direction), scenes, covers (open, close, stop, position; garage/gate/door blocked by default) and light effects; command-only scenes publish no state topic and read as available while `unknown`.
 - Offline test suites (policy model and rendered templates); example broker ACL; hub heartbeat example.

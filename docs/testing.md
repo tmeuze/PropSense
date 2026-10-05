@@ -15,6 +15,13 @@ It cannot prove HA's own functions behave like the stubs.
 Both suites were also checked by breaking the templates on purpose (dropping a
 floor check, adding a domain, removing a clamp); every break was caught.
 
+## Fans, scenes, covers on a real instance
+The offline suite checks the payloads and the validation. It cannot tell you
+how a real MQTT fan or cover reacts to them, in particular that several
+`*_state_topic` keys may share one topic. Try one fan, one scene and one cover:
+every control the hub entity has should appear on the unit and work, and a
+control the hub entity lacks should not appear.
+
 ## Lights on a real instance
 Offline tests cover discovery modes, state payloads and command clamping with
 stand-ins. On a real hub check one light of each kind you own (on/off only,

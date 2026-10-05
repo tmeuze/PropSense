@@ -6,9 +6,8 @@
 - **Strict label/floor pairs.** A unit label on a common-floor entity, or a
   common label on a unit floor, exposes nothing. A tagging mistake alone never
   leaks an entity.
-- **No privileged domains.** Locks, covers, cameras, scripts, automations and
-  anything else outside light, switch, sensor and binary sensor are not
-  handled. The domain list is not an input.
+- **A fixed domain list.** Only light, switch, sensor, binary sensor, fan, scene and cover (and the climate blueprint) are handled. Locks, alarm panels, cameras, scripts and automations are not. The domain list is not an input.
+- **Safer covers.** Garage, gate and door covers are blocked by default, and an unavailable cover is never exposed.
 - **Commands are validated twice.** The broker ACL limits what a unit may
   publish; the hub re-checks the whitelist on every command and uses hardcoded
   services. The entity comes from the topic, never the payload.
@@ -28,6 +27,11 @@
 4. **Treat label/area edits on the hub as access control.** Anyone who can
    change them on the hub changes what a unit can reach.
 5. **Review before exposing anything that matters.** This is pre-1.0 software.
+
+## Scenes need care
+A scene is only as safe as what it does. Exposing a scene lets a unit trigger
+every entity the scene touches, and PropSense cannot check whether those
+belong to that unit. Label only scenes whose contents are safe for that unit.
 
 ## Not covered
 - A compromised hub exposes everything. A compromised unit can only read its

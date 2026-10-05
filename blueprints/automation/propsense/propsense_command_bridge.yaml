@@ -58,6 +58,27 @@ blueprint:
       selector:
         floor:
           multiple: true
+    blocked_cover_classes:
+      name: Blocked cover device classes
+      description: "Covers of these device classes are never exposed (safety default: garage doors, gates, doors). A cover whose state is unavailable is never exposed."
+      default:
+        - garage
+        - gate
+        - door
+      selector:
+        select:
+          multiple: true
+          options:
+            - awning
+            - blind
+            - curtain
+            - damper
+            - door
+            - garage
+            - gate
+            - shade
+            - shutter
+            - window
 
 mode: queued
 max: 10
@@ -73,7 +94,8 @@ variables:
   unit_floors: !input unit_floors
   common_label: !input common_label
   common_floors: !input common_floors
-  domains: ["light", "switch"]
+  blocked_covers: !input blocked_cover_classes
+  domains: ["light", "switch", "fan", "scene", "cover"]
   parts: "{{ trigger.topic.split('/') }}"
   domain: "{{ parts[1] if parts | length == 4 else '' }}"
   obj: "{{ parts[2] if parts | length == 4 else '' }}"
@@ -83,10 +105,10 @@ variables:
     {% for f in unit_floors %}{% set ns.ua = ns.ua + floor_areas(f) %}{% endfor %}
     {% for f in common_floors %}{% set ns.ca = ns.ca + floor_areas(f) %}{% endfor %}
     {% for e in label_entities(unit_label) %}
-      {% if area_id(e) in ns.ua and e.split('.')[0] in domains and e not in ns.out %}{% set ns.out = ns.out + [e] %}{% endif %}
+      {% if area_id(e) in ns.ua and e.split('.')[0] in domains and e not in ns.out and not (e.startswith('cover.') and (states(e) in ['unavailable', 'unknown'] or state_attr(e, 'device_class') in blocked_covers)) %}{% set ns.out = ns.out + [e] %}{% endif %}
     {% endfor %}
     {% for e in label_entities(common_label) %}
-      {% if area_id(e) in ns.ca and e.split('.')[0] in domains and e not in ns.out %}{% set ns.out = ns.out + [e] %}{% endif %}
+      {% if area_id(e) in ns.ca and e.split('.')[0] in domains and e not in ns.out and not (e.startswith('cover.') and (states(e) in ['unavailable', 'unknown'] or state_attr(e, 'device_class') in blocked_covers)) %}{% set ns.out = ns.out + [e] %}{% endif %}
     {% endfor %}
     {{ ns.out }}
   p: "{{ trigger.payload_json if trigger.payload_json is defined else {} }}"
@@ -120,6 +142,7 @@ actions:
               {% if 'h' in c and 's' in c and 'hs' in modes %}{% set d = d | combine({'hs_color': [[[c.h | float(0), 0] | max, 360] | min, [[c.s | float(0), 0] | max, 100] | min]}) %}{% endif %}
               {% if 'x' in c and 'y' in c and 'xy' in modes %}{% set d = d | combine({'xy_color': [[[c.x | float(0), 0] | max, 1] | min, [[c.y | float(0), 0] | max, 1] | min]}) %}{% endif %}
               {% if 'r' in c and 'g' in c and 'b' in c and (modes | select('in', ['rgb', 'rgbw', 'rgbww']) | list | length > 0) %}{% set d = d | combine({'rgb_color': [[[c.r | int(0), 0] | max, 255] | min, [[c.g | int(0), 0] | max, 255] | min, [[c.b | int(0), 0] | max, 255] | min]}) %}{% endif %}
+              {% if p.effect is defined and p.effect in (state_attr(entity, 'effect_list') or []) %}{% set d = d | combine({'effect': p.effect}) %}{% endif %}
               {{ d }}
       - conditions: "{{ domain == 'light' and (p.state | default('') | upper) == 'OFF' }}"
         sequence:
@@ -136,3 +159,71 @@ actions:
           - action: switch.turn_off
             target:
               entity_id: "{{ entity }}"
+      # ---- fans: one JSON command topic; features gate each command ----
+      - conditions: "{{ domain == 'fan' and (p.state | default('') | upper) == 'ON' }}"
+        sequence:
+          - action: fan.turn_on
+            target:
+              entity_id: "{{ entity }}"
+      - conditions: "{{ domain == 'fan' and (p.state | default('') | upper) == 'OFF' }}"
+        sequence:
+          - action: fan.turn_off
+            target:
+              entity_id: "{{ entity }}"
+      - conditions: "{{ domain == 'fan' and p.percentage is defined and p.percentage | float(none) is not none and (state_attr(entity, 'supported_features') | int(0) // 1) % 2 == 1 }}"
+        sequence:
+          - action: fan.set_percentage
+            target:
+              entity_id: "{{ entity }}"
+            data:
+              percentage: "{{ [[p.percentage | float(0) | round(0) | int, 0] | max, 100] | min }}"
+      - conditions: "{{ domain == 'fan' and p.preset_mode is defined and p.preset_mode in (state_attr(entity, 'preset_modes') or []) and (state_attr(entity, 'supported_features') | int(0) // 8) % 2 == 1 }}"
+        sequence:
+          - action: fan.set_preset_mode
+            target:
+              entity_id: "{{ entity }}"
+            data:
+              preset_mode: "{{ p.preset_mode }}"
+      - conditions: "{{ domain == 'fan' and p.oscillating is defined and p.oscillating in [true, false] and (state_attr(entity, 'supported_features') | int(0) // 2) % 2 == 1 }}"
+        sequence:
+          - action: fan.oscillate
+            target:
+              entity_id: "{{ entity }}"
+            data:
+              oscillating: "{{ p.oscillating }}"
+      - conditions: "{{ domain == 'fan' and p.direction is defined and p.direction in ['forward', 'reverse'] and (state_attr(entity, 'supported_features') | int(0) // 4) % 2 == 1 }}"
+        sequence:
+          - action: fan.set_direction
+            target:
+              entity_id: "{{ entity }}"
+            data:
+              direction: "{{ p.direction }}"
+      # ---- scenes: the scene's own contents are the privilege ----
+      - conditions: "{{ domain == 'scene' and word == 'ON' }}"
+        sequence:
+          - action: scene.turn_on
+            target:
+              entity_id: "{{ entity }}"
+      # ---- covers: open, close, stop, position (tilt is not carried) ----
+      - conditions: "{{ domain == 'cover' and p.command is defined and p.command == 'open' and (state_attr(entity, 'supported_features') | int(0) // 1) % 2 == 1 }}"
+        sequence:
+          - action: cover.open_cover
+            target:
+              entity_id: "{{ entity }}"
+      - conditions: "{{ domain == 'cover' and p.command is defined and p.command == 'close' and (state_attr(entity, 'supported_features') | int(0) // 2) % 2 == 1 }}"
+        sequence:
+          - action: cover.close_cover
+            target:
+              entity_id: "{{ entity }}"
+      - conditions: "{{ domain == 'cover' and p.command is defined and p.command == 'stop' and (state_attr(entity, 'supported_features') | int(0) // 8) % 2 == 1 }}"
+        sequence:
+          - action: cover.stop_cover
+            target:
+              entity_id: "{{ entity }}"
+      - conditions: "{{ domain == 'cover' and p.position is defined and p.position | float(none) is not none and (state_attr(entity, 'supported_features') | int(0) // 4) % 2 == 1 }}"
+        sequence:
+          - action: cover.set_cover_position
+            target:
+              entity_id: "{{ entity }}"
+            data:
+              position: "{{ [[p.position | float(0) | round(0) | int, 0] | max, 100] | min }}"

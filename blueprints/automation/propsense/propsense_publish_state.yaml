@@ -48,6 +48,28 @@ blueprint:
 # A hub can hold thousands of entities, so state_changed
 # is busy. Most runs exit at the condition; a small queue would drop real
 # updates under a burst, so keep it large.
+    blocked_cover_classes:
+      name: Blocked cover device classes
+      description: "Covers of these device classes are never exposed (safety default: garage doors, gates, doors). A cover whose state is unavailable is never exposed."
+      default:
+        - garage
+        - gate
+        - door
+      selector:
+        select:
+          multiple: true
+          options:
+            - awning
+            - blind
+            - curtain
+            - damper
+            - door
+            - garage
+            - gate
+            - shade
+            - shutter
+            - window
+
 mode: queued
 max: 200
 max_exceeded: silent
@@ -84,16 +106,17 @@ variables:
   unit_floors: !input unit_floors
   common_label: !input common_label
   common_floors: !input common_floors
-  domains: ["light", "switch", "sensor", "binary_sensor"]
+  blocked_covers: !input blocked_cover_classes
+  domains: ["light", "switch", "sensor", "binary_sensor", "fan", "scene", "cover"]
   exposed: >-
     {% set ns = namespace(ua=[], ca=[], out=[]) %}
     {% for f in unit_floors %}{% set ns.ua = ns.ua + floor_areas(f) %}{% endfor %}
     {% for f in common_floors %}{% set ns.ca = ns.ca + floor_areas(f) %}{% endfor %}
     {% for e in label_entities(unit_label) %}
-      {% if area_id(e) in ns.ua and e.split('.')[0] in domains and e not in ns.out %}{% set ns.out = ns.out + [e] %}{% endif %}
+      {% if area_id(e) in ns.ua and e.split('.')[0] in domains and e not in ns.out and not (e.startswith('cover.') and (states(e) in ['unavailable', 'unknown'] or state_attr(e, 'device_class') in blocked_covers)) %}{% set ns.out = ns.out + [e] %}{% endif %}
     {% endfor %}
     {% for e in label_entities(common_label) %}
-      {% if area_id(e) in ns.ca and e.split('.')[0] in domains and e not in ns.out %}{% set ns.out = ns.out + [e] %}{% endif %}
+      {% if area_id(e) in ns.ca and e.split('.')[0] in domains and e not in ns.out and not (e.startswith('cover.') and (states(e) in ['unavailable', 'unknown'] or state_attr(e, 'device_class') in blocked_covers)) %}{% set ns.out = ns.out + [e] %}{% endif %}
     {% endfor %}
     {{ ns.out }}
 
@@ -116,14 +139,15 @@ actions:
             obj: "{{ repeat.item.split('.')[1] }}"
             base: "{{ unit }}/{{ repeat.item.split('.')[0] }}/{{ repeat.item.split('.')[1] }}"
             s: "{{ states(repeat.item) }}"
-            ok: "{{ s not in ['unavailable', 'unknown'] }}"
+            # Scenes sit in "unknown" until first used; that is still available.
+            ok: "{{ s != 'unavailable' if domain == 'scene' else s not in ['unavailable', 'unknown'] }}"
         - action: mqtt.publish
           data:
             topic: "{{ base }}/availability"
             payload: "{{ 'online' if ok else 'offline' }}"
             retain: true
         - condition: template
-          value_template: "{{ ok }}"
+          value_template: "{{ ok and domain != 'scene' }}"
         - action: mqtt.publish
           data:
             topic: "{{ base }}/state"
@@ -134,11 +158,23 @@ actions:
                 {% set cm0 = state_attr(repeat.item, 'color_mode') %}
                 {% set cm = 'rgb' if cm0 in ['rgbw', 'rgbww'] else ('brightness' if cm0 == 'white' else cm0) %}
                 {% if state_attr(repeat.item, 'brightness') is not none %}{% set d = d | combine({'brightness': state_attr(repeat.item, 'brightness')}) %}{% endif %}
+                {% if state_attr(repeat.item, 'effect') is not none %}{% set d = d | combine({'effect': state_attr(repeat.item, 'effect')}) %}{% endif %}
                 {% if cm %}{% set d = d | combine({'color_mode': cm}) %}{% endif %}
                 {% if cm == 'color_temp' and state_attr(repeat.item, 'color_temp_kelvin') is not none %}{% set d = d | combine({'color_temp': state_attr(repeat.item, 'color_temp_kelvin')}) %}{% endif %}
                 {% if cm == 'hs' and state_attr(repeat.item, 'hs_color') %}{% set c = state_attr(repeat.item, 'hs_color') %}{% set d = d | combine({'color': {'h': c[0], 's': c[1]}}) %}{% endif %}
                 {% if cm == 'xy' and state_attr(repeat.item, 'xy_color') %}{% set c = state_attr(repeat.item, 'xy_color') %}{% set d = d | combine({'color': {'x': c[0], 'y': c[1]}}) %}{% endif %}
                 {% if cm == 'rgb' and state_attr(repeat.item, 'rgb_color') %}{% set c = state_attr(repeat.item, 'rgb_color') %}{% set d = d | combine({'color': {'r': c[0], 'g': c[1], 'b': c[2]}}) %}{% endif %}
+                {{ d | to_json }}
+              {% elif domain == 'fan' %}
+                {% set d = {'state': s | upper} %}
+                {% if state_attr(repeat.item, 'percentage') is not none %}{% set d = d | combine({'percentage': state_attr(repeat.item, 'percentage')}) %}{% endif %}
+                {% if state_attr(repeat.item, 'preset_mode') is not none %}{% set d = d | combine({'preset_mode': state_attr(repeat.item, 'preset_mode')}) %}{% endif %}
+                {% if state_attr(repeat.item, 'oscillating') is not none %}{% set d = d | combine({'oscillating': state_attr(repeat.item, 'oscillating')}) %}{% endif %}
+                {% if state_attr(repeat.item, 'direction') is not none %}{% set d = d | combine({'direction': state_attr(repeat.item, 'direction')}) %}{% endif %}
+                {{ d | to_json }}
+              {% elif domain == 'cover' %}
+                {% set d = {'state': s} %}
+                {% if state_attr(repeat.item, 'current_position') is not none %}{% set d = d | combine({'position': state_attr(repeat.item, 'current_position')}) %}{% endif %}
                 {{ d | to_json }}
               {% elif domain in ['switch', 'binary_sensor'] %}
                 {{ s | upper }}

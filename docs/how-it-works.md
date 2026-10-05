@@ -44,6 +44,22 @@ to its valid range) and a colour or colour temperature is only accepted if the
 hub light supports that model. A light that is currently off still advertises
 its capabilities (they come from the entity, not from its current state).
 
+## Fans, scenes, covers, light effects
+All use one JSON state topic and one JSON command topic (`.../state`, `.../set`);
+the unit converts with templates, so commands stay on the four-level topic the
+ACL already allows.
+
+| Domain | Unit gets | Commands (all feature-checked and clamped on the hub) |
+|---|---|---|
+| Fan | on/off, plus speed, preset modes, oscillation, direction only if the hub fan supports them | `state`, `percentage` 0 to 100, `preset_mode` (must be in the hub's list), `oscillating` (boolean), `direction` (forward or reverse) |
+| Scene | a command-only entity (no state) | `ON` activates the scene |
+| Cover | open, close, stop (null hides the button), position if supported; device class | `{"command": "open"|"close"|"stop"}`, `{"position": 0..100}`; tilt is not carried |
+| Light effects | `effect_list` from the hub light | `effect` must be in the light's own list, otherwise it is dropped |
+
+A scene shows as available while its state is `unknown` (never used yet).
+Covers of the classes in `blocked_cover_classes` (default garage, gate, door)
+and covers that are unavailable are never exposed.
+
 ## Climate (synthetic thermostat)
 `propsense_climate` publishes one MQTT climate entity per room per unit, built
 from hub entities, so a guest sees what your controller is actually doing and
