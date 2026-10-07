@@ -105,14 +105,24 @@ author, in October 2026:
 - Existing automations can be repointed at these blueprints with identical
   published payloads.
 
+**Also verified live, 2026-10-07** (a unit -> hub -> real devices, HA 2026.9.4):
+- Light RGB colour, effect (an RGB light with 216 effects) and brightness, with the new
+  state arriving back on the unit in about 1 s; restored afterwards.
+- Fan: percentage, preset mode, oscillation, turn off/on, and the state-topic
+  sharing across several `*_state_topic` keys (an air circulator).
+- Hub heartbeat retriggers on the MQTT birth message after the will fires.
+Lesson: read live state over REST, not a browser tab's cached `hass.states`; a
+tab whose websocket dropped showed hours-old data and led to a wrong "restore".
+
 **Not run live (offline tests only): UNVERIFIED on real HA/MQTT**
-- Light brightness, colour temperature, colour, effects.
-- Fans, scenes, covers (notably several `*_state_topic` keys sharing one
-  topic; whether MQTT covers accept `null` payloads to hide buttons as documented).
+- Light colour temperature and xy (only one hub light supports them).
+- Scenes and covers (whether MQTT covers accept `null` payloads to hide
+  buttons as documented). The test hub has no scenes or covers.
 - The climate blueprint, including target/mode sensors and override expiry
-  (the author had no climate entity on the hub yet).
-- Custom `hub_status_topic` / `area_prefix_regex` inputs on a real instance.
-- How a unit treats a discovery payload that changes on an existing entity.
+  (needs a safe climate entity and a deployed automation).
+- Custom `hub_status_topic` and `area_prefix_regex` inputs are in real use on
+  the test hub, and a changed `hub_status_topic` (availability topic) was
+  picked up by existing unit entities after rediscovery.
 
 ## Pitfalls already paid for (read before editing)
 - **Replacing a blueprint file does not change running automations** until
