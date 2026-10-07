@@ -15,9 +15,9 @@ integration.
 
 > **Status: pre-1.0.** Verified live on Home Assistant 2026.9.x with an EMQX
 > broker: discovery, state, availability, on/off commands for lights and
-> switches, light RGB colour, effects and brightness, fans (speed, preset,
-> oscillation, on/off), a shared common area, and negative tests. Light colour
-> temperature, scenes, covers and synthetic climate are tested offline only. Read
+> switches, light colour (RGB, colour temperature, xy), effects and brightness, fans (speed, preset,
+> oscillation, on/off), a shared common area, and negative tests. Scenes,
+> covers and synthetic climate are tested offline only. Read
 > [docs/security-model.md](docs/security-model.md) before exposing anything
 > that matters.
 

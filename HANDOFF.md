@@ -108,6 +108,8 @@ author, in October 2026:
 **Also verified live, 2026-10-07** (a unit -> hub -> real devices, HA 2026.9.4):
 - Light RGB colour, effect (an RGB light with 216 effects) and brightness, with the new
   state arriving back on the unit in about 1 s; restored afterwards.
+- Light colour temperature (3000 K, 5000 K) and xy colour on a colour-temperature
+  light, including the colour-mode switch; restored afterwards.
 - Fan: percentage, preset mode, oscillation, turn off/on, and the state-topic
   sharing across several `*_state_topic` keys (an air circulator).
 - Hub heartbeat retriggers on the MQTT birth message after the will fires.
@@ -115,7 +117,6 @@ Lesson: read live state over REST, not a browser tab's cached `hass.states`; a
 tab whose websocket dropped showed hours-old data and led to a wrong "restore".
 
 **Not run live (offline tests only): UNVERIFIED on real HA/MQTT**
-- Light colour temperature and xy (only one hub light supports them).
 - Scenes and covers (whether MQTT covers accept `null` payloads to hide
   buttons as documented). The test hub has no scenes or covers.
 - The climate blueprint, including target/mode sensors and override expiry
