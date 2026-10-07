@@ -1,4 +1,4 @@
-# ha-unity (pre-1.0): publish state. Core path verified live on HA 2026.9.x (see README status).
+# Unity (pre-1.0): publish state. Core path verified live on HA 2026.9.x (see README status).
 #
 # On the hub, publish retained state and availability for one unit's exposed
 # entities. Same whitelist policy as ha_unity_publish_discovery.yaml (keep the
@@ -11,7 +11,7 @@
 # queue would drop real updates during a burst.
 
 blueprint:
-  name: "ha-unity: publish state"
+  name: "Unity: publish state"
   description: >-
     Publishes retained state to <unit>/<domain>/<object>/state and an
     availability marker for entities that pass the whitelist policy.

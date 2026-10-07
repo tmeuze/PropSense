@@ -1,4 +1,4 @@
-# ha-unity (pre-1.0): synthetic climate. The policy, clamp, topic and payload
+# Unity (pre-1.0): synthetic climate. The policy, clamp, topic and payload
 # logic are tested offline; the call into your climate entity is not (it depends
 # on your controller). See docs/testing.md.
 #
@@ -39,7 +39,7 @@
 #   - the mode sensor's state strings (mapped: heating, cooling, idle, off)
 
 blueprint:
-  name: "ha-unity: synthetic climate"
+  name: "Unity: synthetic climate"
   description: >-
     Publishes a climate entity backed by a hub climate entity to one unit and applies its
     clamped setpoint commands.

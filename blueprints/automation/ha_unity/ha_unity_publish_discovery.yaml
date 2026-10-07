@@ -1,4 +1,4 @@
-# ha-unity (pre-1.0): publish discovery. Core path verified live on HA 2026.9.x (see README status).
+# Unity (pre-1.0): publish discovery. Core path verified live on HA 2026.9.x (see README status).
 #
 # On the hub, publish retained MQTT discovery for one unit's exposed entities
 # (lights, switches, sensors, binary sensors). Create one automation per unit.
@@ -23,7 +23,7 @@
 # publishes an empty retained payload.
 
 blueprint:
-  name: "ha-unity: publish discovery"
+  name: "Unity: publish discovery"
   description: >-
     Publishes retained MQTT discovery under <unit>/ha/ for entities that pass
     the whitelist policy, and clears it for entities that no longer do.

@@ -5,7 +5,7 @@
 # publishes the retained "online" itself, because HA has only one birth topic.
 #
 # Triggers on HA start only, so fire it once manually after installing.
-alias: "ha-unity: hub heartbeat"
+alias: "Unity: hub heartbeat"
 mode: single
 triggers:
   - trigger: homeassistant

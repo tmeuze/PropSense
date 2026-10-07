@@ -1,4 +1,4 @@
-# ha-unity (pre-1.0): command bridge. Core path verified live on HA 2026.9.x (see README status).
+# Unity (pre-1.0): command bridge. Core path verified live on HA 2026.9.x (see README status).
 #
 # On the hub, the ONLY path from a child's command to a real entity (lights and
 # switches). Same whitelist policy as the publishers, re-checked on EVERY
@@ -20,7 +20,7 @@
 # (docs/emqx-acl-example.conf).
 
 blueprint:
-  name: "ha-unity: command bridge (lights, switches)"
+  name: "Unity: command bridge (lights, switches)"
   description: >-
     Re-checks the whitelist policy, then calls light/switch turn_on/turn_off
     for commands a child publishes to <unit>/<domain>/<object>/set.

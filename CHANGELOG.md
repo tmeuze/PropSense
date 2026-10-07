@@ -1,7 +1,7 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
-- Docs: status now states exactly what was verified live; README notes ha-unity is not ha-propsense and that rules/UI belong to that project. Blueprint headers no longer claim end-to-end verification for everything.
+- Docs: status now states exactly what was verified live; README notes Unity is not ha-propsense and that rules/UI belong to that project. Blueprint headers no longer claim end-to-end verification for everything.
 - Renamed the project from PropSense to ha-unity. Blueprints now live in `blueprints/automation/ha_unity/` as `ha_unity_*.yaml`, and the default hub status topic is `ha-unity/hub/status` (was `propsense/hub/status`). If you already deployed: re-import the blueprints, update your broker ACL and the hub heartbeat to the new topic, or set `hub_status_topic` explicitly to keep the old one.
 - Blueprints: publish discovery, publish state, command bridge (lights, switches), synthetic climate.
 - Whitelist: unit label + unit floors, or common label + common floors; allowlisted domains only.

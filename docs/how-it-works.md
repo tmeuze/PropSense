@@ -1,4 +1,4 @@
-# How ha-unity works
+# How Unity works
 
 ## Roles
 - **Hub:** the Home Assistant instance that owns devices and integrations.

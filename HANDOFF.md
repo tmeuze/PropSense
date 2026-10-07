@@ -6,6 +6,8 @@ on 2026-10-06 unless marked **UNVERIFIED**. Do not claim a feature works "live"
 unless it is in the verified-live list below.
 
 ## What this is
+Naming: the project is called **Unity** in prose and display names; `ha-unity` is only the repo slug, file names, URLs and the MQTT topic prefix.
+
 Home Assistant blueprints (not a custom integration) that publish selected
 entities from one **hub** instance to other instances (**units**) over MQTT
 discovery, driven by labels, floors and areas set in the hub's UI. Fail closed:

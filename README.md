@@ -1,10 +1,12 @@
-# ha-unity
+# Unity
+
+(Repository: `ha-unity`.)
 
 Publish selected Home Assistant entities from one **hub** instance to other
 instances (**units**), safely and automatically, driven by labels, floors and
 areas you already manage in the hub's UI.
 
-ha-unity was built for a property with several guest-facing Home Assistant
+Unity was built for a property with several guest-facing Home Assistant
 instances that must see and control only their own devices, while everything
 privileged (radios, locks, cloud accounts, controllers) stays on one hub. It
 is a set of blueprints over plain MQTT discovery. It is not a custom
@@ -18,9 +20,9 @@ integration.
 > [docs/security-model.md](docs/security-model.md) before exposing anything
 > that matters.
 
-> **Not ha-propsense.** ha-unity was briefly named "PropSense". That name now
+> **Not ha-propsense.** Unity was briefly named "PropSense". That name now
 > belongs to a separate project, ha-propsense, a HACS integration with a UI for
-> label-driven rules. ha-unity stays a narrow component for syncing Home
+> label-driven rules. Unity stays a narrow component for syncing Home
 > Assistant instances and is expected to rely on ha-propsense for tagging and
 > rules later.
 
@@ -86,15 +88,15 @@ use, and per-instance broker users (see
 - Deleting an entity from the hub entirely leaves a stale retained discovery
   topic on the broker.
 - Lights support on/off, brightness, colour temperature, colour (hs, xy, rgb; `rgbw`/`rgbww` appear as rgb) and effects. Transitions and white-channel control are not carried. Covers carry open, close, stop and position (no tilt).
-- **A scene is exposed as a button, but its contents are the privilege.** Activating it can change any entity the scene touches, including devices that belong to other units; ha-unity cannot check that. Only label scenes whose contents are safe for that unit.
+- **A scene is exposed as a button, but its contents are the privilege.** Activating it can change any entity the scene touches, including devices that belong to other units; Unity cannot check that. Only label scenes whose contents are safe for that unit.
 - Covers of the classes garage, gate and door are blocked by default (an input). A cover whose state is unavailable is never exposed.
 - Synthetic climate is the least-tested blueprint: its policy, clamp and payload logic are tested offline, but the call into your climate entity is not, and guest-override expiry is lost on a Home Assistant restart.
 
 ## Roadmap
-ha-unity stays a narrow, blueprint-based component for syncing entities between
+Unity stays a narrow, blueprint-based component for syncing entities between
 Home Assistant instances. It will not grow its own rules engine or UI. Tagging
 and rules are expected to move to the separate ha-propsense project (for
-example as a "grant to child instance" action) with ha-unity depending on it.
+example as a "grant to child instance" action) with Unity depending on it.
 Nothing of that exists yet. Known gaps are listed under Limits.
 
 ## Tests
