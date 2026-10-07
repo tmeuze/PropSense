@@ -4,12 +4,19 @@
 # can stay on homeassistant/status for other integrations; this automation
 # publishes the retained "online" itself, because HA has only one birth topic.
 #
-# Triggers on HA start only, so fire it once manually after installing.
+# Triggers on HA start and on every MQTT (re)connect (HA's birth message on
+# homeassistant/status). The second trigger matters: after an unclean
+# disconnect the broker publishes the will ("offline", retained), and without
+# it nothing would republish "online" until the next HA restart. Fire it once
+# manually after installing.
 alias: "Unity: hub heartbeat"
 mode: single
 triggers:
   - trigger: homeassistant
     event: start
+  - trigger: mqtt
+    topic: homeassistant/status
+    payload: "online"
 actions:
   - action: mqtt.publish
     data:
