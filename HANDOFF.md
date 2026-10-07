@@ -1,0 +1,194 @@
+# Handoff: ha-unity (for the next Claude Code session)
+
+Read `README.md` first (what it is and how users install it), then this file.
+Everything here was checked against the repo and real Home Assistant behaviour
+on 2026-10-06 unless marked **UNVERIFIED**. Do not claim a feature works "live"
+unless it is in the verified-live list below.
+
+## What this is
+Home Assistant blueprints (not a custom integration) that publish selected
+entities from one **hub** instance to other instances (**units**) over MQTT
+discovery, driven by labels, floors and areas set in the hub's UI. Fail closed:
+an entity is exposed only if (unit label AND area on a unit floor) OR (common
+label AND area on a common floor), and its domain is on a fixed list.
+
+- Repo: `github.com/tmeuze/ha-unity` (branch `main`, in sync with local at the
+  time of writing).
+- Formerly named **PropSense**. See "Rename" below for what that changed.
+- Version: `0.1.0 (unreleased)`, pre-1.0. No git tags yet.
+- License: MIT. Git identity is the owner's; commits end with the
+  `Co-Authored-By: Claude ...` trailer the session reminder specifies. **Only
+  push when the user asks.**
+
+## Layout
+```
+blueprints/automation/ha_unity/
+  ha_unity_publish_discovery.yaml   retained MQTT discovery; revokes stale
+  ha_unity_publish_state.yaml       retained state + availability
+  ha_unity_command_bridge.yaml      the only path from a unit command to a real entity
+  ha_unity_climate.yaml             synthetic thermostat (separate whitelist check)
+docs/            how-it-works, security-model, testing, emqx-acl-example.conf
+examples/hub_heartbeat.yaml         publishes the retained "online" marker
+scripts/set_repo.py                 rewrites README import links and blueprint source_url
+tests/policy_model.py               stdlib: whitelist model + ACL file evaluator
+tests/render_blueprints.py          renders the REAL templates with Jinja2 + stubbed HA
+README.md  CHANGELOG.md  RELEASING.md  LICENSE
+```
+
+## Run the tests (no Home Assistant needed)
+```bash
+python3 tests/policy_model.py                  # 63 PASS lines, ends "all checks passed"
+python tests/render_blueprints.py              # 172 PASS lines; needs PyYAML + Jinja2
+```
+`render_blueprints.py` needs a venv with `pyyaml` and `jinja2` (the author's is
+a pyenv env named `.venv`; create your own if missing, with the user's OK to
+download). Both suites passed on 2026-10-06 and a private-name scan was clean.
+
+**Mutation habit (important):** every time you change a template, deliberately
+break it (drop a clamp, remove a feature check, widen a domain) in a temp copy
+and confirm a test fails. This caught real mistakes. The ad-hoc harness is not
+committed yet: copy `BP/*.yaml` to a temp dir, apply one `str.replace`, point
+`render_blueprints.BP` at it, run the `test_*` functions with stdout silenced,
+and count `FAILS`. Adding it as `tests/mutations.py` is an open item.
+
+**Honesty rule:** the template tests use stand-ins for HA's functions
+(`label_entities`, `floor_areas`, `area_id`, `state_attr`, ...). They prove the
+logic, not HA's behaviour. Keep the "Verified" claims in README and blueprint
+headers accurate when you change what has been run live.
+
+## Design decisions (do not re-propose without a reason)
+- **Whitelist, strict label/floor pairs.** A unit label on a common-floor
+  entity, or the common label on a unit floor, exposes nothing. The domain list
+  is hardcoded and deliberately not an input (except `blocked_cover_classes`).
+- **The `exposed` template must be identical** in discovery, state and command
+  blueprints (domain lists differ: commands exclude sensors). The climate
+  blueprint has its own `allowed` template with the same rule. Tests assert
+  all agree with `tests/policy_model.py`; change the model first.
+- **Commands are validated on the hub every time**: entity comes from the
+  topic, never the payload; services are hardcoded; values clamped; features
+  checked against the hub entity's `supported_features`/modes.
+- **One JSON state topic and one JSON command topic per entity** (fans, covers,
+  lights), converted by templates on the unit. This keeps commands on the
+  four-level topic `<unit>/<domain>/<object>/set` so the broker ACL needs only
+  `<unit>/+/+/set` (plus `<unit>/climate/+/+/set`).
+- **Rejected:** `mqtt_statestream`/`eventstream` (single base topic, no
+  validated command path), `remote_homeassistant` (broad credential on the
+  parent), per-device renaming for access control (names carry no policy; area
+  and label do), and a `last_triggered` trick for override expiry (it fires on
+  every trigger; the shipped design is `wait_for_trigger` in parallel mode).
+- **Blueprints now, custom integration later** (README roadmap). Reason: the
+  templates are long and only testable through stubs. Adapters per domain as
+  unit-tested Python, subscriptions only to exposed entities, config UI, audit
+  log, stale-discovery cleanup. Nothing of that exists. Before starting, ask
+  the user whether another project of theirs already covers it.
+- **Excluded on purpose:** locks, alarm panels, cameras, scripts. Media players
+  have no MQTT platform, so they are unsupported, not merely unbuilt.
+- **Scenes are a privilege**: their contents are not checked and may touch
+  other units' devices. Documented in `docs/security-model.md`.
+
+## What is verified live vs not
+Verified on a real hub plus two real units (HA 2026.9.x, EMQX 6.x), by the
+author, in October 2026:
+- Discovery, state and availability reach the right unit only; a common-floor
+  entity reaches both and mirrors state; on/off commands travel unit -> hub ->
+  real light -> other unit.
+- Negative tests: a command for another unit's entity is ignored by the hub
+  bridge; a publish to another unit's topic is denied by the broker ACL.
+- HA's real template functions behave as assumed: `label_entities`,
+  `floor_areas`, `area_id`, `area_name`, `device_id`, `device_attr`,
+  `regex_replace`, `match`.
+- `suggested_area` makes a unit adopt an existing area or create a floorless one.
+- The hub heartbeat (retained `online`) is what makes unit entities available.
+- Existing automations can be repointed at these blueprints with identical
+  published payloads.
+
+**Not run live (offline tests only): UNVERIFIED on real HA/MQTT**
+- Light brightness, colour temperature, colour, effects.
+- Fans, scenes, covers (notably several `*_state_topic` keys sharing one
+  topic; whether MQTT covers accept `null` payloads to hide buttons as documented).
+- The climate blueprint, including target/mode sensors and override expiry
+  (the author had no climate entity on the hub yet).
+- Custom `hub_status_topic` / `area_prefix_regex` inputs on a real instance.
+- How a unit treats a discovery payload that changes on an existing entity.
+
+## Pitfalls already paid for (read before editing)
+- **Replacing a blueprint file does not change running automations** until
+  `automation.reload` (or a restart). Re-importing a blueprint needs the same.
+- **HA restores the old entity id** when a deleted MQTT entity returns with the
+  same unique id. Rename ids by hand; removing the device alone does not fix it.
+- **Area names are unique per instance.** A hub holding several units cannot use
+  bare "Kitchen" twice, hence the optional prefix-stripping regex.
+- **MQTT entities with a device are named "device + entity name"**, which
+  doubled names. Discovery sends `name: null` when the entity is the device,
+  else the friendly name minus the device-name prefix.
+- **Optional entities cannot be state-trigger inputs** (an empty `entity_id` is
+  invalid), so the climate blueprint triggers on `state_changed` and filters.
+- **Jinja scoping:** `{% set %}` inside a `for` loop does not escape it; use a
+  `namespace`. A `{{ }}` inside a quoted string within `{% %}` is fine.
+- **A scene's state is `unknown` until first used**, which is available. MQTT
+  scenes accept no `state_topic`, so the shared payload base has none and each
+  branch adds it.
+- **HA has one birth topic.** Z2M-style consumers need `homeassistant/status`,
+  so the retained `online` comes from `examples/hub_heartbeat.yaml` and the
+  will message (retain on) supplies `offline`.
+- **Broker ACL denials of publishes are silent** (`deny_action = ignore`); test
+  denials explicitly. Children also need publish on their own `<unit>/status`
+  for birth/will.
+- A state blueprint on a busy hub needs a large queue (`max: 200`); a small one
+  drops real updates during bursts.
+
+## Adding a domain (checklist)
+1. `ha_unity_publish_discovery.yaml`: add to `domains`, add a `choose` branch
+   using documented MQTT keys (verify names against HA docs first; a wrong key
+   silently rejects the entity).
+2. `ha_unity_publish_state.yaml`: add to `domains`; add the state payload branch.
+3. `ha_unity_command_bridge.yaml`: add to `domains`; add validated branches with
+   hardcoded services, clamps and feature checks.
+4. `tests/policy_model.py`: `DOMAINS`, fixture entities, bridge domain set.
+5. `tests/render_blueprints.py`: attrs, discovery/state/command checks, then
+   mutation-test each new guard.
+6. Docs: README limits, `docs/how-it-works.md`, `docs/security-model.md` if it
+   widens the attack surface, CHANGELOG.
+
+## Rename (PropSense -> ha-unity) and what it broke
+Commit `f2a47b6` ("Rename project from PropSense to ha-unity") is a pure rename
+with one behaviour change, confirmed by reading its diff and by both test suites
+passing afterwards. The user reported that an unrelated session accidentally
+pushed a recent commit to this repo. The rename commit is the most recent and
+the likely candidate, but git cannot confirm that (every commit uses the
+owner's identity), so ask the user before assuming. Apart from it the history
+is five commits from the building session.
+- Blueprint directory/files: `propsense/propsense_*.yaml` -> `ha_unity/ha_unity_*.yaml`.
+- **Default `hub_status_topic`: `propsense/hub/status` -> `ha-unity/hub/status`**
+  (blueprints, `examples/hub_heartbeat.yaml`, `docs/emqx-acl-example.conf`).
+  Anyone deployed under the old name must re-import, update the ACL and the
+  heartbeat, or set `hub_status_topic` explicitly. Noted in `CHANGELOG.md`.
+- `scripts/set_repo.py` default repo is now `ha-unity`; import links and
+  `source_url` point at `tmeuze/ha-unity`.
+- The only remaining "propsense" in tracked files is the CHANGELOG rename note.
+- Imported blueprint paths on a user's HA are derived from the source URL;
+  blueprints imported under the old name stay as separate, no-longer-updating
+  files and automations still point at them until repointed.
+
+## Open items, suggested order
+1. **User re-imports** the discovery, state and command blueprints, reloads, and
+   live-checks one light of each kind, one fan, one scene, one cover. Then move
+   items from UNVERIFIED to verified and fix whatever real HA disagrees with.
+2. **Climate on a real entity** (target sensor, mode sensor, clamp, expiry action).
+3. Commit the mutation harness as `tests/mutations.py`; add a CI workflow that
+   installs `pyyaml jinja2` and runs both suites.
+4. Tag `v0.1.0` once 1 and 2 are done (`RELEASING.md`), remove "unreleased".
+5. Known gaps: stale retained discovery when an entity is deleted from the hub
+   entirely; cover tilt; light transitions; expiry countdowns lost on HA
+   restart; the state blueprint's per-event filtering cost on very large hubs.
+6. Decide the custom-integration path (see Design decisions) with the user.
+
+## Conventions
+- No private names in this repo. Fixtures use `alpha`/`beta`/`shared`/`hub`.
+  Before every push, scan tracked files for the owner's instance names,
+  hostnames, IP addresses, device names and e-mail. Ask the user for the list;
+  **do not write it into this repo** (a list of private names is itself a leak).
+  The owner's GitHub name in URLs is expected.
+- Blueprint headers say "Verified end to end on HA 2026.9.x"; that sentence is
+  only true for the verified-live list above. Tighten it if you touch a header.
+- Do not weaken fail-closed defaults to make a demo work.
