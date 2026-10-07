@@ -1,4 +1,4 @@
-# ha-unity (pre-1.0): command bridge. Verified end to end on HA 2026.9.x.
+# ha-unity (pre-1.0): command bridge. Core path verified live on HA 2026.9.x (see README status).
 #
 # On the hub, the ONLY path from a child's command to a real entity (lights and
 # switches). Same whitelist policy as the publishers, re-checked on EVERY

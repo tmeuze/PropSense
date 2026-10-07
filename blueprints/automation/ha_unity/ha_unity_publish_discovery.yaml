@@ -1,4 +1,4 @@
-# ha-unity (pre-1.0): publish discovery. Verified end to end on HA 2026.9.x.
+# ha-unity (pre-1.0): publish discovery. Core path verified live on HA 2026.9.x (see README status).
 #
 # On the hub, publish retained MQTT discovery for one unit's exposed entities
 # (lights, switches, sensors, binary sensors). Create one automation per unit.

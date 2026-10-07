@@ -76,11 +76,12 @@ headers accurate when you change what has been run live.
   parent), per-device renaming for access control (names carry no policy; area
   and label do), and a `last_triggered` trick for override expiry (it fires on
   every trigger; the shipped design is `wait_for_trigger` in parallel mode).
-- **Blueprints now, custom integration later** (README roadmap). Reason: the
-  templates are long and only testable through stubs. Adapters per domain as
-  unit-tested Python, subscriptions only to exposed entities, config UI, audit
-  log, stale-discovery cleanup. Nothing of that exists. Before starting, ask
-  the user whether another project of theirs already covers it.
+- **Narrow blueprint component; no UI integration.** Decided 2026-10-06: ha-unity
+  will not become a full integration. The separate **ha-propsense** project (not
+  the former name of this repo, despite sharing it) is the HACS integration with
+  UI for label-driven rules. ha-unity should eventually rely on it for tagging
+  and rules, likely as a "grant to child instance" action. Keep the dependency
+  pointing from ha-unity to ha-propsense; do not build a rules engine here.
 - **Excluded on purpose:** locks, alarm panels, cameras, scripts. Media players
   have no MQTT platform, so they are unsupported, not merely unbuilt.
 - **Scenes are a privilege**: their contents are not checked and may touch
@@ -181,7 +182,7 @@ is five commits from the building session.
 5. Known gaps: stale retained discovery when an entity is deleted from the hub
    entirely; cover tilt; light transitions; expiry countdowns lost on HA
    restart; the state blueprint's per-event filtering cost on very large hubs.
-6. Decide the custom-integration path (see Design decisions) with the user.
+6. Design the ha-propsense hand-off (see Design decisions) when that project is ready.
 
 ## Conventions
 - No private names in this repo. Fixtures use `alpha`/`beta`/`shared`/`hub`.

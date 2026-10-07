@@ -11,11 +11,18 @@ is a set of blueprints over plain MQTT discovery. It is not a custom
 integration, and nothing is installed on the units except their ordinary MQTT
 integration.
 
-> **Status: pre-1.0.** Verified end to end on Home Assistant 2026.9.x with an
-> EMQX broker (lights, switches and a shared common area, including negative
-> tests). Synthetic climate is the least-tested part. Read
+> **Status: pre-1.0.** Verified live on Home Assistant 2026.9.x with an EMQX
+> broker: discovery, state, availability, on/off commands for lights and
+> switches, a shared common area, and negative tests. Light colour and effects,
+> fans, scenes, covers and synthetic climate are tested offline only. Read
 > [docs/security-model.md](docs/security-model.md) before exposing anything
 > that matters.
+
+> **Not ha-propsense.** ha-unity was briefly named "PropSense". That name now
+> belongs to a separate project, ha-propsense, a HACS integration with a UI for
+> label-driven rules. ha-unity stays a narrow component for syncing Home
+> Assistant instances and is expected to rely on ha-propsense for tagging and
+> rules later.
 
 ## What it does
 
@@ -75,7 +82,7 @@ use, and per-instance broker users (see
 
 - Lights (with colour and effects), switches, sensors, binary sensors, fans, scenes, covers, and (via the climate blueprint) a synthetic thermostat. **No locks, alarm panels, cameras or scripts**, on purpose. Media players have no MQTT equivalent and are not supported.
 - The state blueprint filters every `state_changed` event. Fine for hundreds of
-  entities; a custom integration would scale better.
+  entities; a different architecture would scale better.
 - Deleting an entity from the hub entirely leaves a stale retained discovery
   topic on the broker.
 - Lights support on/off, brightness, colour temperature, colour (hs, xy, rgb; `rgbw`/`rgbww` appear as rgb) and effects. Transitions and white-channel control are not carried. Covers carry open, close, stop and position (no tilt).
@@ -84,7 +91,11 @@ use, and per-instance broker users (see
 - Synthetic climate is the least-tested blueprint: its policy, clamp and payload logic are tested offline, but the call into your climate entity is not, and guest-override expiry is lost on a Home Assistant restart.
 
 ## Roadmap
-These blueprints are the simple tier. The templates are long and only testable through stand-ins, so as domains grow the plan is a **custom integration** (installable through HACS) in this same repo: per-domain adapters as ordinary, unit-tested Python, subscriptions only to exposed entities, a config UI for units, audit logging, rate limiting and stale-discovery cleanup. The blueprints would stay as the lightweight option. Nothing of that exists yet.
+ha-unity stays a narrow, blueprint-based component for syncing entities between
+Home Assistant instances. It will not grow its own rules engine or UI. Tagging
+and rules are expected to move to the separate ha-propsense project (for
+example as a "grant to child instance" action) with ha-unity depending on it.
+Nothing of that exists yet. Known gaps are listed under Limits.
 
 ## Tests
 

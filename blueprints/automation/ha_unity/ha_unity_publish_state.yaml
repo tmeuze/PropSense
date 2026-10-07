@@ -1,4 +1,4 @@
-# ha-unity (pre-1.0): publish state. Verified end to end on HA 2026.9.x.
+# ha-unity (pre-1.0): publish state. Core path verified live on HA 2026.9.x (see README status).
 #
 # On the hub, publish retained state and availability for one unit's exposed
 # entities. Same whitelist policy as ha_unity_publish_discovery.yaml (keep the
@@ -6,7 +6,7 @@
 #
 # PERFORMANCE: this triggers on every state_changed event and filters, because
 # a blueprint cannot subscribe to a computed entity list. Fine for a few
-# hundred busy entities; a custom integration would be better beyond that. The
+# hundred busy entities; a different architecture would be better beyond that. The
 # queue is large on purpose: most runs exit at the condition, and a small
 # queue would drop real updates during a burst.
 
