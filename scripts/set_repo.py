@@ -18,7 +18,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--owner", required=True)
     ap.add_argument("--version", default="main")
-    ap.add_argument("--repo", default="PropSense")
+    ap.add_argument("--repo", default="ha-unity")
     a = ap.parse_args()
     q = lambda s: quote(s, safe="")  # noqa: E731
     changed = 0

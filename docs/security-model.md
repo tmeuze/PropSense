@@ -1,6 +1,6 @@
 # Security model
 
-## What PropSense guarantees (by construction and by test)
+## What ha-unity guarantees (by construction and by test)
 - **Fail closed.** Exposure needs a label, a matching floor and an allowlisted
   domain. Missing or mismatched anything exposes nothing.
 - **Strict label/floor pairs.** A unit label on a common-floor entity, or a
@@ -30,7 +30,7 @@
 
 ## Scenes need care
 A scene is only as safe as what it does. Exposing a scene lets a unit trigger
-every entity the scene touches, and PropSense cannot check whether those
+every entity the scene touches, and ha-unity cannot check whether those
 belong to that unit. Label only scenes whose contents are safe for that unit.
 
 ## Not covered

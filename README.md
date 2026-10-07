@@ -1,10 +1,10 @@
-# PropSense
+# ha-unity
 
 Publish selected Home Assistant entities from one **hub** instance to other
 instances (**units**), safely and automatically, driven by labels, floors and
 areas you already manage in the hub's UI.
 
-PropSense was built for a property with several guest-facing Home Assistant
+ha-unity was built for a property with several guest-facing Home Assistant
 instances that must see and control only their own devices, while everything
 privileged (radios, locks, cloud accounts, controllers) stays on one hub. It
 is a set of blueprints over plain MQTT discovery. It is not a custom
@@ -43,10 +43,10 @@ use, and per-instance broker users (see
 
    | Blueprint | Import |
    |---|---|
-   | Publish discovery | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ftmeuze%2FPropSense%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fpropsense%2Fpropsense_publish_discovery.yaml) |
-   | Publish state | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ftmeuze%2FPropSense%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fpropsense%2Fpropsense_publish_state.yaml) |
-   | Command bridge (lights, switches) | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ftmeuze%2FPropSense%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fpropsense%2Fpropsense_command_bridge.yaml) |
-   | Synthetic climate (optional) | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ftmeuze%2FPropSense%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fpropsense%2Fpropsense_climate.yaml) |
+   | Publish discovery | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ftmeuze%2Fha-unity%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fha_unity%2Fha_unity_publish_discovery.yaml) |
+   | Publish state | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ftmeuze%2Fha-unity%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fha_unity%2Fha_unity_publish_state.yaml) |
+   | Command bridge (lights, switches) | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ftmeuze%2Fha-unity%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fha_unity%2Fha_unity_command_bridge.yaml) |
+   | Synthetic climate (optional) | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ftmeuze%2Fha-unity%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fha_unity%2Fha_unity_climate.yaml) |
 
    Updating later: open the blueprint in Settings, Automations & Scenes,
    Blueprints, and use **Re-import blueprint**. Then reload automations.
@@ -79,7 +79,7 @@ use, and per-instance broker users (see
 - Deleting an entity from the hub entirely leaves a stale retained discovery
   topic on the broker.
 - Lights support on/off, brightness, colour temperature, colour (hs, xy, rgb; `rgbw`/`rgbww` appear as rgb) and effects. Transitions and white-channel control are not carried. Covers carry open, close, stop and position (no tilt).
-- **A scene is exposed as a button, but its contents are the privilege.** Activating it can change any entity the scene touches, including devices that belong to other units; PropSense cannot check that. Only label scenes whose contents are safe for that unit.
+- **A scene is exposed as a button, but its contents are the privilege.** Activating it can change any entity the scene touches, including devices that belong to other units; ha-unity cannot check that. Only label scenes whose contents are safe for that unit.
 - Covers of the classes garage, gate and door are blocked by default (an input). A cover whose state is unavailable is never exposed.
 - Synthetic climate is the least-tested blueprint: its policy, clamp and payload logic are tested offline, but the call into your climate entity is not, and guest-override expiry is lost on a Home Assistant restart.
 

@@ -1,7 +1,7 @@
-# PropSense (pre-1.0): publish state. Verified end to end on HA 2026.9.x.
+# ha-unity (pre-1.0): publish state. Verified end to end on HA 2026.9.x.
 #
 # On the hub, publish retained state and availability for one unit's exposed
-# entities. Same whitelist policy as propsense_publish_discovery.yaml (keep the
+# entities. Same whitelist policy as ha_unity_publish_discovery.yaml (keep the
 # `exposed` template identical). Only whitelisted entities are ever published.
 #
 # PERFORMANCE: this triggers on every state_changed event and filters, because
@@ -11,12 +11,12 @@
 # queue would drop real updates during a burst.
 
 blueprint:
-  name: "PropSense: publish state"
+  name: "ha-unity: publish state"
   description: >-
     Publishes retained state to <unit>/<domain>/<object>/state and an
     availability marker for entities that pass the whitelist policy.
   domain: automation
-  source_url: https://github.com/tmeuze/PropSense/blob/main/blueprints/automation/propsense/propsense_publish_state.yaml
+  source_url: https://github.com/tmeuze/ha-unity/blob/main/blueprints/automation/ha_unity/ha_unity_publish_state.yaml
   input:
     unit:
       name: Unit prefix

@@ -1,4 +1,4 @@
-# How PropSense works
+# How ha-unity works
 
 ## Roles
 - **Hub:** the Home Assistant instance that owns devices and integrations.
@@ -13,7 +13,7 @@
 <unit>/<domain>/<object_id>/set            commands from the unit
 <unit>/climate/<room>/target/set           climate setpoint (climate blueprint)
 <unit>/status                              the unit's own birth and will
-propsense/hub/status                       retained hub marker (input: hub_status_topic)
+ha-unity/hub/status                       retained hub marker (input: hub_status_topic)
 ```
 Entities are available on a unit only while the entity's own availability is
 `online` **and** the hub marker reads `online`.
@@ -61,7 +61,7 @@ Covers of the classes in `blocked_cover_classes` (default garage, gate, door)
 and covers that are unavailable are never exposed.
 
 ## Climate (synthetic thermostat)
-`propsense_climate` publishes one MQTT climate entity per room per unit, built
+`ha_unity_climate` publishes one MQTT climate entity per room per unit, built
 from hub entities, so a guest sees what your controller is actually doing and
 not a thermostat's own display:
 

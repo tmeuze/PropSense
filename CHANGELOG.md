@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- Renamed the project from PropSense to ha-unity. Blueprints now live in `blueprints/automation/ha_unity/` as `ha_unity_*.yaml`, and the default hub status topic is `ha-unity/hub/status` (was `propsense/hub/status`). If you already deployed: re-import the blueprints, update your broker ACL and the hub heartbeat to the new topic, or set `hub_status_topic` explicitly to keep the old one.
 - Blueprints: publish discovery, publish state, command bridge (lights, switches), synthetic climate.
 - Whitelist: unit label + unit floors, or common label + common floors; allowlisted domains only.
 - Optional `area_prefix_regex` and `hub_status_topic` inputs.

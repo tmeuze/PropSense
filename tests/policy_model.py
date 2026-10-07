@@ -80,7 +80,7 @@ def inputs(unit):
     """Blueprint inputs for one unit's automations."""
     return {"unit": unit, "unit_label": UNIT_LABEL[unit], "unit_floors": UNIT_FLOORS[unit],
             "common_label": COMMON_LABEL, "common_floors": COMMON_FLOORS,
-            "hub_status_topic": "propsense/hub/status", "area_prefix_regex": "^L[0-9]+ ",
+            "hub_status_topic": "ha-unity/hub/status", "area_prefix_regex": "^L[0-9]+ ",
             "blocked_cover_classes": ["garage", "gate", "door"],
             "command_topic": f"{unit}/+/+/set"}
 
@@ -267,12 +267,12 @@ def test_acl(f):
         # (user, op, topic, expected)
         ("alpha", "subscribe", "alpha/ha/light/+/config", "allow"),
         ("alpha", "subscribe", "alpha/light/x/state", "allow"),
-        ("alpha", "subscribe", "propsense/hub/status", "allow"),
+        ("alpha", "subscribe", "ha-unity/hub/status", "allow"),
         ("alpha", "publish", "alpha/light/x/set", "allow"),
         ("alpha", "publish", "alpha/climate/entry/target/set", "allow"),
         ("alpha", "publish", "alpha/status", "allow"),
         ("alpha", "publish", "beta/status", "deny"),
-        ("alpha", "publish", "propsense/hub/status", "deny"),
+        ("alpha", "publish", "ha-unity/hub/status", "deny"),
         ("beta", "publish", "beta/status", "allow"),
         ("beta", "publish", "alpha/status", "deny"),
         ("alpha", "publish", "alpha/light/x/state", "deny"),
@@ -298,7 +298,7 @@ def test_acl(f):
         ("hub", "publish", "beta/light/x/state", "allow"),
         ("hub", "subscribe", "alpha/light/x/set", "allow"),
         ("hub", "subscribe", "homeassistant/+/+/config", "allow"),
-        ("hub", "publish", "propsense/hub/status", "allow"),
+        ("hub", "publish", "ha-unity/hub/status", "allow"),
         ("hub", "publish", "homeassistant/light/x/config", "deny"),
         ("nobody", "subscribe", "alpha/#", "deny"),
         ("nobody", "publish", "anything/at/all", "deny"),

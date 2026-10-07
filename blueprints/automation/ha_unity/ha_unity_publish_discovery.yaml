@@ -1,4 +1,4 @@
-# PropSense (pre-1.0): publish discovery. Verified end to end on HA 2026.9.x.
+# ha-unity (pre-1.0): publish discovery. Verified end to end on HA 2026.9.x.
 #
 # On the hub, publish retained MQTT discovery for one unit's exposed entities
 # (lights, switches, sensors, binary sensors). Create one automation per unit.
@@ -23,12 +23,12 @@
 # publishes an empty retained payload.
 
 blueprint:
-  name: "PropSense: publish discovery"
+  name: "ha-unity: publish discovery"
   description: >-
     Publishes retained MQTT discovery under <unit>/ha/ for entities that pass
     the whitelist policy, and clears it for entities that no longer do.
   domain: automation
-  source_url: https://github.com/tmeuze/PropSense/blob/main/blueprints/automation/propsense/propsense_publish_discovery.yaml
+  source_url: https://github.com/tmeuze/ha-unity/blob/main/blueprints/automation/ha_unity/ha_unity_publish_discovery.yaml
   input:
     unit:
       name: Unit prefix
@@ -60,7 +60,7 @@ blueprint:
     hub_status_topic:
       name: Hub availability topic
       description: "Retained topic that reads 'online' while the hub is up (its MQTT will message should set 'offline'). Child entities are unavailable unless it reads online."
-      default: "propsense/hub/status"
+      default: "ha-unity/hub/status"
       selector:
         text:
     area_prefix_regex:

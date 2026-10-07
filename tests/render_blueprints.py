@@ -24,7 +24,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import policy_model as pm  # noqa: E402
 
-BP = Path(__file__).resolve().parent.parent / "blueprints" / "automation" / "propsense"
+BP = Path(__file__).resolve().parent.parent / "blueprints" / "automation" / "ha_unity"
 
 
 class Inp:
@@ -157,8 +157,8 @@ for _e, _c in pm.COVER_CLASS.items():
 
 
 def test_syntax_and_exposed():
-    for name in ["propsense_publish_discovery.yaml", "propsense_publish_state.yaml",
-                 "propsense_command_bridge.yaml", "propsense_climate.yaml"]:
+    for name in ["ha_unity_publish_discovery.yaml", "ha_unity_publish_state.yaml",
+                 "ha_unity_command_bridge.yaml", "ha_unity_climate.yaml"]:
         bp = load(name)
         check(f"{name}: parses and has blueprint+actions",
               "blueprint" in bp and "actions" in bp)
@@ -166,14 +166,14 @@ def test_syntax_and_exposed():
     for unit in ["alpha", "beta"]:
         inputs = pm.inputs(unit)
         # discovery builds `exposed` inside an actions variables step
-        disc = load("propsense_publish_discovery.yaml")
+        disc = load("ha_unity_publish_discovery.yaml")
         step = next(a for a in disc["actions"] if "variables" in a)
         ctx = run_vars(env, disc["variables"], inputs, {})
         ctx = run_vars(env, step["variables"], inputs, ctx)
         e_disc = set(ctx["exposed"])
-        state_bp = load("propsense_publish_state.yaml")
+        state_bp = load("ha_unity_publish_state.yaml")
         e_state = set(run_vars(env, state_bp["variables"], inputs, {})["exposed"])
-        cmd_bp = load("propsense_command_bridge.yaml")
+        cmd_bp = load("ha_unity_command_bridge.yaml")
         # command variables reference `trigger`; give a dummy topic
         e_cmd = set(run_vars(env, cmd_bp["variables"], inputs,
                              {"trigger": {"topic": f"{unit}/light/x/set", "payload": "ON"}})["exposed"])
@@ -191,7 +191,7 @@ def test_syntax_and_exposed():
 def bridge(unit, topic, payload):
     """Run the command-bridge variables/conditions/choose; return service calls."""
     env = env_for(WORLD, ATTRS)
-    bp = load("propsense_command_bridge.yaml")
+    bp = load("ha_unity_command_bridge.yaml")
     inputs = pm.inputs(unit)
     trig = {"topic": topic, "payload": payload}
     try:
@@ -248,7 +248,7 @@ def test_bridge():
 
 def test_payloads():
     env = env_for(WORLD, ATTRS)
-    disc = load("propsense_publish_discovery.yaml")
+    disc = load("ha_unity_publish_discovery.yaml")
     inputs = pm.inputs("alpha")
     loop = [a for a in disc["actions"] if "repeat" in a][1]["repeat"]["sequence"]
     var_step = loop[0]["variables"]
@@ -256,7 +256,7 @@ def test_payloads():
     for eid, domain in [("light.alpha_lamp", "light"), ("switch.entry_relay", "switch"),
                         ("sensor.beta_temp", "sensor")]:
         ctx = run_vars(env, var_step, inputs, {"repeat": {"item": eid}, "unit": "alpha",
-                                                "area_prefix": "^L[0-9]+ ", "hub_status_topic": "propsense/hub/status",
+                                                "area_prefix": "^L[0-9]+ ", "hub_status_topic": "ha-unity/hub/status",
                                                 "common_area_names": ["Entry", "Outdoors"]})
         branch = next(b for b in choose if domain in b["conditions"])
         data = branch["sequence"][0]["data"]
@@ -269,16 +269,16 @@ def test_payloads():
               topic.startswith(f"alpha/ha/{domain}/"))
         check(f"discovery {domain}: valid JSON with unique_id and state_topic",
               payload["unique_id"].startswith("alpha_") and payload["state_topic"].startswith("alpha/"))
-        check(f"discovery {domain}: availability requires propsense/hub/status",
+        check(f"discovery {domain}: availability requires ha-unity/hub/status",
               payload["availability_mode"] == "all"
-              and {"topic": "propsense/hub/status"} in payload["availability"])
+              and {"topic": "ha-unity/hub/status"} in payload["availability"])
         if domain != "sensor":
             check(f"discovery {domain}: command topic is <base>/set",
                   payload.get("command_topic", "").endswith("/set"))
         else:
             check("discovery sensor: no command topic", "command_topic" not in payload)
     # suggested_area / device block
-    ctx0 = {"unit": "alpha", "area_prefix": "^L[0-9]+ ", "hub_status_topic": "propsense/hub/status",
+    ctx0 = {"unit": "alpha", "area_prefix": "^L[0-9]+ ", "hub_status_topic": "ha-unity/hub/status",
             "common_area_names": [pm.AREA_NAMES[a] for a in pm.FLOOR_AREAS["shared"]]}
     for eid, expect_sa in [("light.kitchen_pendant", "Kitchen"), ("light.alpha_lamp", None),
                            ("light.front_door", "Entry")]:
@@ -296,7 +296,7 @@ def test_payloads():
     check("empty area_prefix_regex sends no suggested_area for a prefixed area",
           "suggested_area" not in ctx["device"])
     # state payloads
-    st = load("propsense_publish_state.yaml")
+    st = load("ha_unity_publish_state.yaml")
     rep = [a for a in st["actions"] if "repeat" in a][0]["repeat"]["sequence"]
     pub = next(a for a in rep if a.get("action") == "mqtt.publish" and a["data"]["topic"].endswith("/state"))
     for eid, state, expect in [
@@ -312,7 +312,7 @@ def test_payloads():
 
 
 def test_climate():
-    bp = load("propsense_climate.yaml")
+    bp = load("ha_unity_climate.yaml")
     base_inputs = dict(pm.inputs("alpha"), object="entry", min_temp=64, max_temp=80,
                        climate_entity="climate.rm_entry", current_sensor="sensor.entry_t",
                        command_topic="alpha/climate/entry/target/set",
@@ -396,7 +396,7 @@ def test_climate():
         check(f"climate discovery {label}: unit and range come from inputs",
               payload["temperature_unit"] == "F" and payload["min_temp"] == 64 and payload["max_temp"] == 80)
         check(f"climate discovery {label}: availability uses the hub topic",
-              {"topic": "propsense/hub/status"} in payload["availability"])
+              {"topic": "ha-unity/hub/status"} in payload["availability"])
     ctx = run_vars(env, bp["variables"], dict(base_inputs, temperature_unit="C"), {"trigger": {"id": "resync"}})
     out = render(env, disc["payload"], ctx)
     check("climate discovery honours temperature_unit input",
@@ -437,11 +437,11 @@ def test_climate():
 
 def light_discovery(eid):
     env = env_for(WORLD, ATTRS)
-    disc = load("propsense_publish_discovery.yaml")
+    disc = load("ha_unity_publish_discovery.yaml")
     inputs = pm.inputs("alpha")
     loop = [a for a in disc["actions"] if "repeat" in a][1]["repeat"]["sequence"]
     ctx = run_vars(env, loop[0]["variables"], inputs, {"repeat": {"item": eid}, "unit": "alpha",
-                                                        "area_prefix": "", "hub_status_topic": "propsense/hub/status",
+                                                        "area_prefix": "", "hub_status_topic": "ha-unity/hub/status",
                                                         "common_area_names": []})
     branch = next(b for b in loop[1]["choose"] if "'light'" in b["conditions"])
     out = render(env, branch["sequence"][0]["data"]["payload"], ctx)
@@ -449,7 +449,7 @@ def light_discovery(eid):
 
 
 def light_state(eid, state, attrs):
-    st = load("propsense_publish_state.yaml")
+    st = load("ha_unity_publish_state.yaml")
     rep = [a for a in st["actions"] if "repeat" in a][0]["repeat"]["sequence"]
     pub = next(a for a in rep if a.get("action") == "mqtt.publish" and a["data"]["topic"].endswith("/state"))
     world = [State(e, state if e == eid else "on") for e in pm.ENTITIES]
@@ -526,11 +526,11 @@ def test_lights():
 def discovery_payload(eid):
     domain = eid.split(".")[0]
     env = env_for(WORLD, ATTRS)
-    disc = load("propsense_publish_discovery.yaml")
+    disc = load("ha_unity_publish_discovery.yaml")
     inputs = pm.inputs("alpha")
     loop = [a for a in disc["actions"] if "repeat" in a][1]["repeat"]["sequence"]
     ctx = run_vars(env, loop[0]["variables"], inputs, {"repeat": {"item": eid}, "unit": "alpha",
-                                                        "area_prefix": "", "hub_status_topic": "propsense/hub/status",
+                                                        "area_prefix": "", "hub_status_topic": "ha-unity/hub/status",
                                                         "common_area_names": []})
     branch = next(b for b in loop[1]["choose"] if f"'{domain}'" in b["conditions"])
     out = render(env, branch["sequence"][0]["data"]["payload"], ctx)
@@ -539,7 +539,7 @@ def discovery_payload(eid):
 
 def state_run(eid, state, attrs):
     """Returns (availability payload, state payload or None if not published)."""
-    st = load("propsense_publish_state.yaml")
+    st = load("ha_unity_publish_state.yaml")
     rep = [a for a in st["actions"] if "repeat" in a][0]["repeat"]["sequence"]
     world = [State(e, state if e == eid else "on") for e in pm.ENTITIES]
     e = env_for(world, {eid: attrs})

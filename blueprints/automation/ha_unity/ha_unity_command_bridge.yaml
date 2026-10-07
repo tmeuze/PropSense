@@ -1,4 +1,4 @@
-# PropSense (pre-1.0): command bridge. Verified end to end on HA 2026.9.x.
+# ha-unity (pre-1.0): command bridge. Verified end to end on HA 2026.9.x.
 #
 # On the hub, the ONLY path from a child's command to a real entity (lights and
 # switches). Same whitelist policy as the publishers, re-checked on EVERY
@@ -20,12 +20,12 @@
 # (docs/emqx-acl-example.conf).
 
 blueprint:
-  name: "PropSense: command bridge (lights, switches)"
+  name: "ha-unity: command bridge (lights, switches)"
   description: >-
     Re-checks the whitelist policy, then calls light/switch turn_on/turn_off
     for commands a child publishes to <unit>/<domain>/<object>/set.
   domain: automation
-  source_url: https://github.com/tmeuze/PropSense/blob/main/blueprints/automation/propsense/propsense_command_bridge.yaml
+  source_url: https://github.com/tmeuze/ha-unity/blob/main/blueprints/automation/ha_unity/ha_unity_command_bridge.yaml
   input:
     unit:
       name: Unit prefix
